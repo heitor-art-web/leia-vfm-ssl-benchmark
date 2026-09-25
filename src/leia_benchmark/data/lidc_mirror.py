@@ -1,0 +1,202 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from typing import Iterable, Mapping
+
+from leia_benchmark.data.lidc_validation import LIDCScanSummary
+
+
+def _first_value(
+    row: Mapping[str, str], names: Iterable[str], *, required: bool = True
+) -> str | None:
+    lowered = {key.lower(): key for key in row}
+    for name in names:
+        key = lowered.get(name.lower())
+        if key is not None:
+            value = str(row[key]).strip()
+            if value != "":
+                return value
+    if required:
+        raise KeyError(f"None of the expected columns are present/populated: {list(names)}")
+    return None
+
+
+def _as_int(value: str | None, default: int = 0) -> int:
+    if value is None or value == "":
+        return default
+    return int(float(value))
+
+
+def _as_float(value: str | None) -> float | None:
+    if value is None or value == "":
+        return None
+    return float(value)
+
+
+def _as_bool(value: str | None, default: bool = False) -> bool:
+    if value is None or value == "":
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "y"}:
+        return True
+    if normalized in {"0", "false", "no", "n"}:
+        return False
+    raise ValueError(f"Cannot parse boolean value: {value!r}")
+
+
+def medotter_case_map(scan_rows: Iterable[Mapping[str, str]]) -> dict[tuple[str, str], str]:
+    """Return (patient_id, series_uid) -> case_id for the MedOtter mirror."""
+    mapping: dict[tuple[str, str], str] = {}
+    for row in scan_rows:
+        patient_id = _first_value(row, ["patient_id"])
+        series_uid = _first_value(row, ["series_uid", "series_instance_uid"])
+        case_id = _first_value(row, ["case_id"])
+        assert patient_id is not None and series_uid is not None and case_id is not None
+        key = (patient_id, series_uid)
+        if key in mapping and mapping[key] != case_id:
+            raise ValueError(f"Conflicting case_id values for {key}")
+        mapping[key] = case_id
+    return mapping
+
+
+def medotter_scan_summaries(
+    scan_rows: Iterable[Mapping[str, str]],
+    nodule_rows: Iterable[Mapping[str, str]],
+) -> list[LIDCScanSummary]:
+    """Convert MedOtter scans.csv/nodules.csv into benchmark scan summaries.
+
+    Column aliases are accepted because the mirror metadata may evolve. The
+    function fails loudly when a scan reports nodules but no matching nodule
+    metadata are available.
+    """
+    scans = list(scan_rows)
+    nodules = list(nodule_rows)
+
+    nodules_by_case: dict[str, list[Mapping[str, str]]] = defaultdict(list)
+    for row in nodules:
+        case_id = _first_value(row, ["case_id"])
+        assert case_id is not None
+        nodules_by_case[case_id].append(row)
+
+    summaries: list[LIDCScanSummary] = []
+    for scan_row in scans:
+        case_id = _first_value(scan_row, ["case_id"])
+        patient_id = _first_value(scan_row, ["patient_id"])
+        series_uid = _first_value(scan_row, ["series_uid", "series_instance_uid"])
+        n_clusters = _as_int(
+            _first_value(scan_row, ["n_nodules", "n_clusters"], required=False),
+            default=0,
+        )
+        assert case_id is not None and patient_id is not None and series_uid is not None
+
+        case_nodules = nodules_by_case.get(case_id, [])
+        if n_clusters > 0 and not case_nodules:
+            raise ValueError(
+                f"{case_id} reports {n_clusters} nodules but nodules.csv has no matching rows"
+            )
+
+        if not case_nodules:
+            summaries.append(
+                LIDCScanSummary(
+                    patient_id=patient_id,
+                    series_instance_uid=series_uid,
+                    n_clusters=0,
+                    best_cluster_index=None,
+                    best_annotation_ids=(),
+                    best_reader_count=0,
+                    best_malignancy_median=None,
+                    best_malignancy_mean=None,
+                    best_malignancy_min=None,
+                    best_malignancy_max=None,
+                    best_diameter_mm_median=None,
+                    best_volume_mm3_median=None,
+                )
+            )
+            continue
+
+        parsed: list[dict[str, object]] = []
+        for fallback_index, row in enumerate(case_nodules):
+            in_default = _as_bool(
+                _first_value(row, ["in_default_gt", "default_gt"], required=False),
+                default=True,
+            )
+            reader_count = _as_int(
+                _first_value(row, ["n_annotations", "annotation_count"], required=False),
+                default=0,
+            )
+            malignancy = _as_float(
+                _first_value(
+                    row,
+                    ["malignancy", "malignancy_median", "median_malignancy"],
+                    required=False,
+                )
+            )
+            diameter = _as_float(
+                _first_value(
+                    row,
+                    ["diameter_mm", "diameter_mm_median", "diameter", "median_diameter"],
+                    required=False,
+                )
+            )
+            volume = _as_float(
+                _first_value(
+                    row,
+                    ["volume_mm3", "volume_mm3_median", "volume", "median_volume"],
+                    required=False,
+                )
+            )
+            nodule_index = _as_int(
+                _first_value(
+                    row,
+                    ["nodule_id", "nodule_index", "cluster_id", "nodule_number"],
+                    required=False,
+                ),
+                default=fallback_index,
+            )
+            parsed.append(
+                {
+                    "index": nodule_index,
+                    "in_default": in_default,
+                    "reader_count": reader_count,
+                    "malignancy": malignancy,
+                    "diameter": diameter,
+                    "volume": volume,
+                }
+            )
+
+        def key(item: dict[str, object]) -> tuple:
+            malignancy = item["malignancy"]
+            diameter = item["diameter"]
+            return (
+                bool(item["in_default"]),
+                int(item["reader_count"]) >= 3,
+                float(malignancy) if malignancy is not None else -1.0,
+                int(item["reader_count"]),
+                float(diameter) if diameter is not None else -1.0,
+                -int(item["index"]),
+            )
+
+        best = max(parsed, key=key)
+        malignancy = best["malignancy"]
+        summaries.append(
+            LIDCScanSummary(
+                patient_id=patient_id,
+                series_instance_uid=series_uid,
+                n_clusters=max(n_clusters, len(case_nodules)),
+                best_cluster_index=int(best["index"]),
+                best_annotation_ids=(),
+                best_reader_count=int(best["reader_count"]),
+                best_malignancy_median=None if malignancy is None else float(malignancy),
+                best_malignancy_mean=None if malignancy is None else float(malignancy),
+                best_malignancy_min=None if malignancy is None else int(round(float(malignancy))),
+                best_malignancy_max=None if malignancy is None else int(round(float(malignancy))),
+                best_diameter_mm_median=None
+                if best["diameter"] is None
+                else float(best["diameter"]),
+                best_volume_mm3_median=None
+                if best["volume"] is None
+                else float(best["volume"]),
+            )
+        )
+
+    return summaries
