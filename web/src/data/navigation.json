@@ -1,0 +1,8 @@
+[
+  { "id": "overview", "label": "Overview", "glyph": "◫" },
+  { "id": "cases", "label": "Cases", "glyph": "◎" },
+  { "id": "viewer", "label": "Viewer", "glyph": "▣" },
+  { "id": "benchmark", "label": "Benchmark", "glyph": "▥" },
+  { "id": "results", "label": "Results", "glyph": "↗" },
+  { "id": "about", "label": "About", "glyph": "i" }
+]

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "sup",
+    "name": "Supervised",
+    "model": "YOLO26-sem",
+    "status": "implemented",
+    "description": "Specialist baseline trained only on the frozen labelled patient subset."
+  },
+  {
+    "id": "mt",
+    "name": "Mean Teacher",
+    "model": "YOLO26-sem student + EMA teacher",
+    "status": "planned",
+    "description": "Semi-supervised arm using labelled supervision plus consistency and pseudo-label learning on the unlabelled pool."
+  },
+  {
+    "id": "mt-medsam",
+    "name": "Mean Teacher + MedSAM",
+    "model": "YOLO26-sem + frozen MedSAM",
+    "status": "planned",
+    "description": "Foundation-model-assisted arm where MedSAM provides a second source of evidence for pseudo-label acceptance and refinement."
+  }
+]

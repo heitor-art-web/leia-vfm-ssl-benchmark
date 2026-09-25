@@ -1,0 +1,5 @@
+[
+  { "votes": "0", "label": "Background for the v1 task", "value": 0, "tone": "background" },
+  { "votes": "1–2", "label": "UNKNOWN / ignore", "value": 255, "tone": "unknown" },
+  { "votes": "3–4", "label": "Trusted nodule", "value": 1, "tone": "trusted" }
+]

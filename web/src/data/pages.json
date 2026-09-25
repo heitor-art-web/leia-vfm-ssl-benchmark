@@ -1,0 +1,26 @@
+{
+  "overview": {
+    "title": "Pulmonary Nodule Segmentation",
+    "subtitle": "Semi-supervised learning and vision foundation models under limited annotations"
+  },
+  "cases": {
+    "title": "Visual QC Cases",
+    "subtitle": "Seven patient-unique LIDC-IDRI examples used to validate trusted and ambiguous annotation handling"
+  },
+  "viewer": {
+    "title": "CT Evidence Viewer",
+    "subtitle": "Inspect the real QC contact sheets exported from the benchmark pipeline"
+  },
+  "benchmark": {
+    "title": "Benchmark Protocol",
+    "subtitle": "Frozen patient splits, annotation budgets and comparison arms"
+  },
+  "results": {
+    "title": "Results",
+    "subtitle": "Scientific benchmark results appear here only after full frozen runs complete"
+  },
+  "about": {
+    "title": "About",
+    "subtitle": "Scope, provenance and research boundaries"
+  }
+}
