@@ -57,6 +57,94 @@ def make_label_split(patient_ids: Iterable[str], fraction: float, seed: int) -> 
     return LabelSplit(seed=seed, fraction=fraction, labelled=labelled, unlabelled=unlabelled)
 
 
+def make_stratified_patient_order(
+    patient_to_stratum: Mapping[str, str | int],
+    *,
+    seed: int,
+) -> list[str]:
+    """Return one deterministic, approximately stratified ordering of patients.
+
+    Prefixes of this ordering are used for nested annotation budgets. At each
+    step the next patient is drawn from the stratum with the largest deficit
+    relative to its full-pool proportion. This avoids independently sampling
+    each budget (which breaks nesting) while keeping small prefixes reasonably
+    representative.
+    """
+    if not patient_to_stratum:
+        raise ValueError("patient_to_stratum is empty")
+
+    strata: dict[str, list[str]] = {}
+    seen: set[str] = set()
+    for patient_id, value in patient_to_stratum.items():
+        patient = str(patient_id).strip()
+        if not patient:
+            raise ValueError("empty patient id")
+        if patient in seen:
+            raise ValueError(f"duplicate patient id: {patient}")
+        seen.add(patient)
+        strata.setdefault(str(value), []).append(patient)
+
+    rng = random.Random(seed)
+    for stratum in strata:
+        strata[stratum] = sorted(strata[stratum])
+        rng.shuffle(strata[stratum])
+
+    total = len(seen)
+    proportions = {stratum: len(ids) / total for stratum, ids in strata.items()}
+    selected = {stratum: 0 for stratum in strata}
+    positions = {stratum: 0 for stratum in strata}
+    ordering: list[str] = []
+
+    # Random tie-break values are fixed once per stratum so repeated runs with
+    # the same seed are deterministic while equal deficits do not privilege a
+    # lexicographic stratum name.
+    tie_break = {stratum: rng.random() for stratum in strata}
+
+    for k in range(1, total + 1):
+        available = [
+            stratum
+            for stratum, ids in strata.items()
+            if positions[stratum] < len(ids)
+        ]
+        if not available:
+            break
+
+        def priority(stratum: str) -> tuple[float, float]:
+            target_so_far = k * proportions[stratum]
+            deficit = target_so_far - selected[stratum]
+            return deficit, tie_break[stratum]
+
+        chosen = max(available, key=priority)
+        patient = strata[chosen][positions[chosen]]
+        positions[chosen] += 1
+        selected[chosen] += 1
+        ordering.append(patient)
+
+    if len(ordering) != total or set(ordering) != seen:
+        raise RuntimeError("failed to construct a complete stratified ordering")
+    return ordering
+
+
+def make_stratified_label_split(
+    patient_to_stratum: Mapping[str, str | int],
+    fraction: float,
+    seed: int,
+) -> LabelSplit:
+    """Create a nested-compatible labelled split from a stratified ordering."""
+    if not 0 < fraction <= 1:
+        raise ValueError("fraction must be in (0, 1]")
+    ordering = make_stratified_patient_order(patient_to_stratum, seed=seed)
+    n_labelled = max(1, math.ceil(len(ordering) * fraction))
+    labelled_set = set(ordering[:n_labelled])
+    all_ids = set(ordering)
+    return LabelSplit(
+        seed=seed,
+        fraction=fraction,
+        labelled=sorted(labelled_set),
+        unlabelled=sorted(all_ids - labelled_set),
+    )
+
+
 def _allocate_counts(n: int, fractions: tuple[float, float, float]) -> tuple[int, int, int]:
     """Hamilton/largest-remainder allocation that always sums exactly to n."""
     raw = [n * fraction for fraction in fractions]
