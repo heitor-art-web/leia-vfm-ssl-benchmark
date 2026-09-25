@@ -46,6 +46,14 @@ jobs:
           python scripts/bootstrap_lidc_hf.py
           --metadata-only
           --output /tmp/lidc_bootstrap
+      - name: Build deterministic patient split manifests
+        env:
+          PYTHONPATH: src
+        run: >-
+          python scripts/build_lidc_split_manifests.py
+          --scans /tmp/lidc_bootstrap/scans.csv
+          --source-json /tmp/lidc_bootstrap/SOURCE.json
+          --out /tmp/lidc_splits
       - name: Show downloaded metadata schema for diagnostics
         if: always()
         run: |
@@ -62,3 +70,13 @@ jobs:
         run: |
           cat /tmp/lidc_bootstrap/SOURCE.json
           cat /tmp/lidc_bootstrap/cohort.csv
+          echo '--- split summary ---'
+          cat /tmp/lidc_splits/summary.json
+      - name: Upload split manifests
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lidc-patient-splits
+          path: /tmp/lidc_splits
+          if-no-files-found: error
+          retention-days: 14
