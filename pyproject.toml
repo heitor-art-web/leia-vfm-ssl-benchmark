@@ -19,5 +19,18 @@ dependencies = [
   "tqdm>=4.66",
 ]
 
+[project.optional-dependencies]
+lidc = [
+  "pylidc==0.2.3",
+  "pydicom>=2.4",
+  "Pillow>=10.0",
+]
+yolo = [
+  "ultralytics",
+]
+dev = [
+  "pytest>=8.0",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
