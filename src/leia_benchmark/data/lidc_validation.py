@@ -12,8 +12,8 @@ class LIDCScanSummary:
 
     `best_*` refers to the most suspicious volumetrically annotated nodule
     cluster in the scan according to radiologist-provided malignancy scores.
-    These scores are subjective likelihood ratings, not pathology-confirmed
-    cancer labels.
+    LIDC exposes annotation counts, not stable reader identity, and the score is
+    a subjective likelihood rating rather than pathology-confirmed cancer.
     """
 
     patient_id: str
@@ -21,7 +21,7 @@ class LIDCScanSummary:
     n_clusters: int
     best_cluster_index: int | None
     best_annotation_ids: tuple[int, ...]
-    best_reader_count: int
+    best_annotation_count: int
     best_malignancy_median: float | None
     best_malignancy_mean: float | None
     best_malignancy_min: int | None
@@ -37,7 +37,7 @@ class LIDCScanSummary:
     def high_suspicion(self) -> bool:
         return (
             self.has_volumetric_nodule
-            and self.best_reader_count >= 3
+            and self.best_annotation_count >= 3
             and self.best_malignancy_median is not None
             and self.best_malignancy_median >= 4.0
         )
@@ -46,7 +46,7 @@ class LIDCScanSummary:
     def low_suspicion(self) -> bool:
         return (
             self.has_volumetric_nodule
-            and self.best_reader_count >= 3
+            and self.best_annotation_count >= 3
             and self.best_malignancy_median is not None
             and self.best_malignancy_median <= 2.0
         )
@@ -81,9 +81,9 @@ def _scan_strength(scan: LIDCScanSummary) -> tuple:
     return (
         scan.high_suspicion,
         scan.has_volumetric_nodule,
-        scan.best_reader_count >= 3,
+        scan.best_annotation_count >= 3,
         scan.best_malignancy_median if scan.best_malignancy_median is not None else -1.0,
-        scan.best_reader_count,
+        scan.best_annotation_count,
         scan.best_diameter_mm_median if scan.best_diameter_mm_median is not None else -1.0,
         scan.series_instance_uid,
     )
