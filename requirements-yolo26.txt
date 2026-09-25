@@ -1,0 +1,3 @@
+# Reproducible YOLO26 runtime used by the first specialist baseline.
+# Ultralytics is AGPL-3.0 licensed; review the upstream license before reuse in other contexts.
+ultralytics==8.4.161
