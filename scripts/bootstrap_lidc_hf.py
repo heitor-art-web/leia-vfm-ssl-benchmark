@@ -96,7 +96,7 @@ def main() -> None:
                 "selected_nodule_index": ""
                 if scan.best_cluster_index is None
                 else scan.best_cluster_index,
-                "n_annotations": scan.best_reader_count,
+                "n_annotations": scan.best_annotation_count,
                 "malignancy_median": ""
                 if scan.best_malignancy_median is None
                 else scan.best_malignancy_median,
@@ -109,8 +109,6 @@ def main() -> None:
     if len({str(row["patient_id"]) for row in cohort_rows}) != len(cohort_rows):
         raise RuntimeError("visual-QC cohort unexpectedly contains duplicate patients")
 
-    # Verify all selected image/mask paths at the exact pinned revision before
-    # writing a reproducible manifest or starting any large downloads.
     missing_files: list[str] = []
     required_files: list[str] = []
     for row in cohort_rows:
@@ -152,8 +150,9 @@ def main() -> None:
         },
         "note": (
             "LIDC malignancy is a subjective radiologist likelihood rating, not a "
-            "pathology-confirmed cancer label. This mirror is a development convenience; "
-            "the canonical dataset source remains TCIA/IDC."
+            "pathology-confirmed cancer label. Annotation count is not treated as exposed "
+            "reader identity. This mirror is a development convenience; the canonical "
+            "dataset source remains TCIA/IDC."
         ),
     }
     (args.output / "SOURCE.json").write_text(
@@ -168,7 +167,6 @@ def main() -> None:
         print(f"Metadata written to {cohort_path.resolve()}")
         return
 
-    downloaded_files = 0
     for filename in required_files:
         hf_hub_download(
             repo_id=args.repo_id,
@@ -177,10 +175,9 @@ def main() -> None:
             revision=resolved_revision,
             local_dir=args.output,
         )
-        downloaded_files += 1
 
     print(
-        f"Selected {len(cohort_rows)} cases and downloaded {downloaded_files} NIfTI files "
+        f"Selected {len(cohort_rows)} cases and downloaded {len(required_files)} NIfTI files "
         f"to {args.output.resolve()}"
     )
     print("Next: python scripts/render_lidc_mirror_previews.py --root " + str(args.output))
