@@ -39,6 +39,7 @@ def resolve_training_config(config: dict, args: argparse.Namespace) -> dict:
     dataset = config["dataset"]
     model = config["model"]
     training = config["training"]
+    augmentation = training.get("augmentation", {})
 
     checkpoint_key = (
         "smoke_checkpoint" if args.model_scale == "smoke" else "benchmark_checkpoint"
@@ -54,6 +55,8 @@ def resolve_training_config(config: dict, args: argparse.Namespace) -> dict:
         "imgsz": int(training["image_size"]),
         "batch": int(training["batch_size"]),
         "optimizer": str(training["optimizer"]),
+        "lr0": float(training["learning_rate"]),
+        "weight_decay": float(training["weight_decay"]),
         "patience": int(training["early_stopping_patience"]),
         "seed": seed,
         "deterministic": bool(training["deterministic"]),
@@ -61,6 +64,27 @@ def resolve_training_config(config: dict, args: argparse.Namespace) -> dict:
         "project": args.project,
         "name": run_name,
     }
+
+    allowed_aug = {
+        "hsv_h",
+        "hsv_s",
+        "hsv_v",
+        "mosaic",
+        "mixup",
+        "copy_paste",
+        "fliplr",
+        "flipud",
+        "degrees",
+        "translate",
+        "scale",
+        "shear",
+        "perspective",
+    }
+    unknown_aug = set(augmentation) - allowed_aug
+    if unknown_aug:
+        raise ValueError(f"unsupported augmentation keys: {sorted(unknown_aug)}")
+    resolved.update({key: augmentation[key] for key in allowed_aug if key in augmentation})
+
     if args.device is not None:
         resolved["device"] = args.device
     return resolved
@@ -76,6 +100,12 @@ def main() -> None:
 
     if args.dry_run:
         return
+
+    data_yaml = Path(resolved["data"])
+    if not data_yaml.exists():
+        raise SystemExit(
+            f"Dataset YAML does not exist: {data_yaml}. Prepare/validate the LIDC export first."
+        )
 
     try:
         import torch
