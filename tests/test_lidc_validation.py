@@ -12,6 +12,7 @@ from leia_benchmark.data.lidc_validation import (
 def _scan(
     patient_id: str,
     *,
+    series_uid: str | None = None,
     n_clusters: int = 1,
     cluster_index: int | None = 0,
     annotation_ids: tuple[int, ...] = (1, 2, 3, 4),
@@ -27,7 +28,7 @@ def _scan(
         diameter = None
     return LIDCScanSummary(
         patient_id=patient_id,
-        series_instance_uid=f"uid-{patient_id}",
+        series_instance_uid=series_uid or f"uid-{patient_id}",
         n_clusters=n_clusters,
         best_cluster_index=cluster_index,
         best_annotation_ids=annotation_ids,
@@ -70,6 +71,24 @@ def test_validation_cohort_uses_low_suspicion_fallback():
 
     assert cohort[0][0] == "control_low_suspicion"
     assert cohort[0][1].patient_id == "LOW"
+
+
+def test_validation_cohort_is_patient_unique_for_multi_scan_patients():
+    scans = [
+        _scan("CONTROL", n_clusters=0),
+        _scan("DUAL", series_uid="uid-dual-empty", n_clusters=0),
+        _scan("DUAL", series_uid="uid-dual-suspicious", malignancy=5.0, diameter=12.0),
+        _scan("H2", malignancy=4.0, diameter=8.0),
+        _scan("H3", malignancy=4.0, diameter=16.0),
+        _scan("H4", malignancy=5.0, diameter=24.0),
+    ]
+
+    cohort = select_visual_validation_cohort(scans, n_suspicious=4)
+    patient_ids = [scan.patient_id for _, scan in cohort]
+
+    assert len(patient_ids) == len(set(patient_ids))
+    dual = next(scan for _, scan in cohort if scan.patient_id == "DUAL")
+    assert dual.series_instance_uid == "uid-dual-suspicious"
 
 
 def test_validation_cohort_rejects_insufficient_high_suspicion_cases():
