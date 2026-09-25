@@ -5,8 +5,22 @@ from leia_benchmark.foundation.medsam import (
     agreement_mask,
     bbox_from_binary,
     boxes_from_binary_components,
+    medsam_rgb_from_25d,
     scale_box_xyxy,
 )
+
+
+def test_medsam_input_uses_central_ct_slice_not_pseudocolour_25d():
+    image = np.zeros((3, 4, 3), dtype=np.uint8)
+    image[:, :, 0] = 10
+    image[:, :, 1] = 120
+    image[:, :, 2] = 240
+    rgb = medsam_rgb_from_25d(image)
+    assert rgb.shape == image.shape
+    assert rgb.dtype == np.uint8
+    assert np.all(rgb[:, :, 0] == 120)
+    assert np.all(rgb[:, :, 1] == 120)
+    assert np.all(rgb[:, :, 2] == 120)
 
 
 def test_scale_box_xyxy_matches_square_resize_geometry():
