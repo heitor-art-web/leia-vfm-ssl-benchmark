@@ -43,46 +43,21 @@ def test_medotter_target_rejects_shape_mismatch():
         )
 
 
-def test_medotter_summaries_and_selection():
+def test_medotter_summaries_and_selection_with_live_field_names():
     scans = [
-        {
-            "case_id": "CTRL_case",
-            "patient_id": "CTRL",
-            "series_uid": "uid-ctrl",
-            "n_nodules": "0",
-        },
-        {
-            "case_id": "A_case",
-            "patient_id": "A",
-            "series_uid": "uid-a",
-            "n_nodules": "1",
-        },
-        {
-            "case_id": "B_case",
-            "patient_id": "B",
-            "series_uid": "uid-b",
-            "n_nodules": "1",
-        },
-        {
-            "case_id": "C_case",
-            "patient_id": "C",
-            "series_uid": "uid-c",
-            "n_nodules": "1",
-        },
-        {
-            "case_id": "D_case",
-            "patient_id": "D",
-            "series_uid": "uid-d",
-            "n_nodules": "1",
-        },
+        {"case_id": "CTRL_case", "patient_id": "CTRL", "series_uid": "uid-ctrl", "n_nodules": "0"},
+        {"case_id": "A_case", "patient_id": "A", "series_uid": "uid-a", "n_nodules": "1"},
+        {"case_id": "B_case", "patient_id": "B", "series_uid": "uid-b", "n_nodules": "1"},
+        {"case_id": "C_case", "patient_id": "C", "series_uid": "uid-c", "n_nodules": "1"},
+        {"case_id": "D_case", "patient_id": "D", "series_uid": "uid-d", "n_nodules": "1"},
     ]
     nodules = [
         {
             "case_id": f"{patient}_case",
             "nodule_id": str(i),
             "n_annotations": "4",
-            "in_default_gt": "true",
-            "malignancy": "5",
+            "in_default_gt": "True",
+            "malignancy_score": "5",
             "diameter_mm": str(diameter),
             "volume_mm3": "100",
         }
@@ -101,46 +76,36 @@ def test_medotter_summaries_and_selection():
 
 def test_medotter_parser_prioritizes_default_multi_annotation_nodule():
     scans = [
-        {
-            "case_id": "P_case",
-            "patient_id": "P",
-            "series_uid": "uid-p",
-            "n_nodules": "2",
-        }
+        {"case_id": "P_case", "patient_id": "P", "series_uid": "uid-p", "n_nodules": "2"}
     ]
     nodules = [
         {
             "case_id": "P_case",
             "nodule_id": "1",
             "n_annotations": "1",
-            "in_default_gt": "false",
-            "malignancy": "5",
+            "in_default_gt": "False",
+            "malignancy_score": "5",
             "diameter_mm": "30",
         },
         {
             "case_id": "P_case",
             "nodule_id": "2",
             "n_annotations": "4",
-            "in_default_gt": "true",
-            "malignancy": "4",
+            "in_default_gt": "True",
+            "malignancy_score": "4",
             "diameter_mm": "12",
         },
     ]
 
     summary = medotter_scan_summaries(scans, nodules)[0]
     assert summary.best_cluster_index == 2
-    assert summary.best_reader_count == 4
+    assert summary.best_annotation_count == 4
     assert summary.best_malignancy_median == 4.0
 
 
 def test_medotter_parser_fails_on_missing_nodule_rows():
     scans = [
-        {
-            "case_id": "P_case",
-            "patient_id": "P",
-            "series_uid": "uid-p",
-            "n_nodules": "1",
-        }
+        {"case_id": "P_case", "patient_id": "P", "series_uid": "uid-p", "n_nodules": "1"}
     ]
     with pytest.raises(ValueError, match="no matching rows"):
         medotter_scan_summaries(scans, [])
