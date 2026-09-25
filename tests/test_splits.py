@@ -1,6 +1,11 @@
 import pytest
 
-from leia_benchmark.splits import make_label_split, make_stratified_patient_partition
+from leia_benchmark.splits import (
+    make_label_split,
+    make_stratified_label_split,
+    make_stratified_patient_order,
+    make_stratified_patient_partition,
+)
 
 
 def test_split_is_disjoint_and_deterministic():
@@ -17,6 +22,43 @@ def test_one_percent_rounds_up_to_one():
     ids = [f"p{i:03d}" for i in range(70)]
     split = make_label_split(ids, 0.01, 1)
     assert len(split.labelled) == 1
+
+
+def test_stratified_patient_order_is_deterministic_and_complete():
+    mapping = {f"p{i:03d}": int(i < 30) for i in range(100)}
+    a = make_stratified_patient_order(mapping, seed=11)
+    b = make_stratified_patient_order(mapping, seed=11)
+    assert a == b
+    assert len(a) == 100
+    assert set(a) == set(mapping)
+
+
+def test_stratified_prefix_tracks_population_mix():
+    mapping = {f"pos{i:03d}": 1 for i in range(30)}
+    mapping.update({f"neg{i:03d}": 0 for i in range(70)})
+    order = make_stratified_patient_order(mapping, seed=123)
+
+    # Every practical prefix should remain close to the 30% positive target.
+    for n in (10, 20, 50, 100):
+        positives = sum(mapping[patient] == 1 for patient in order[:n])
+        assert abs(positives - 0.30 * n) <= 1
+
+
+def test_stratified_label_budgets_are_nested():
+    mapping = {f"pos{i:03d}": 1 for i in range(40)}
+    mapping.update({f"neg{i:03d}": 0 for i in range(60)})
+    one = make_stratified_label_split(mapping, 0.01, seed=9)
+    five = make_stratified_label_split(mapping, 0.05, seed=9)
+    ten = make_stratified_label_split(mapping, 0.10, seed=9)
+    twenty_five = make_stratified_label_split(mapping, 0.25, seed=9)
+
+    assert set(one.labelled) <= set(five.labelled)
+    assert set(five.labelled) <= set(ten.labelled)
+    assert set(ten.labelled) <= set(twenty_five.labelled)
+    assert len(one.labelled) == 1
+    assert len(five.labelled) == 5
+    assert len(ten.labelled) == 10
+    assert len(twenty_five.labelled) == 25
 
 
 def test_stratified_patient_partition_is_deterministic_and_disjoint():
