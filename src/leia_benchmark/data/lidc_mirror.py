@@ -1,11 +1,26 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Iterable, Mapping
 
 import numpy as np
 
 from leia_benchmark.data.lidc_validation import LIDCScanSummary
+
+
+@dataclass(frozen=True)
+class LIDCAmbiguousCase:
+    """One scan selected to exercise the semantic UNKNOWN/ignore path."""
+
+    role: str
+    case_id: str
+    patient_id: str
+    series_instance_uid: str
+    nodule_index: int
+    annotation_count: int
+    malignancy_score: float | None
+    diameter_mm: float | None
 
 
 def _first_value(
@@ -122,6 +137,133 @@ def medotter_case_map(scan_rows: Iterable[Mapping[str, str]]) -> dict[tuple[str,
             raise ValueError(f"Conflicting case_id values for {key}")
         mapping[key] = case_id
     return mapping
+
+
+def select_ambiguous_validation_cases(
+    scan_rows: Iterable[Mapping[str, str]],
+    nodule_rows: Iterable[Mapping[str, str]],
+    *,
+    exclude_patient_ids: Iterable[str] = (),
+) -> list[LIDCAmbiguousCase]:
+    """Select clean one-reader and two-reader UNKNOWN examples for visual QC.
+
+    Each selected scan must contain exactly one volumetrically annotated nodule,
+    no nodule in the documented default ground truth, and exactly one metadata
+    row for that nodule. These constraints make the scan-wide annotation-count
+    mask interpretable for QC: its contour evidence cannot belong to a second
+    volumetric nodule in the same scan.
+
+    Candidate selection is deterministic and deliberately uses the middle of
+    the observed diameter ordering instead of manually choosing visually easy
+    examples. Existing QC patients can be excluded to keep the cohort unique.
+    """
+    scans = list(scan_rows)
+    nodules = list(nodule_rows)
+    excluded = {str(value) for value in exclude_patient_ids}
+
+    nodules_by_case: dict[str, list[Mapping[str, str]]] = defaultdict(list)
+    for row in nodules:
+        case_id = _first_value(row, ["case_id"])
+        assert case_id is not None
+        nodules_by_case[case_id].append(row)
+
+    by_reader_count: dict[int, list[LIDCAmbiguousCase]] = {1: [], 2: []}
+    for scan in scans:
+        case_id = _first_value(scan, ["case_id"])
+        patient_id = _first_value(scan, ["patient_id"])
+        series_uid = _first_value(scan, ["series_uid", "series_instance_uid"])
+        assert case_id is not None and patient_id is not None and series_uid is not None
+        if patient_id in excluded:
+            continue
+
+        n_nodules = _as_int(
+            _first_value(scan, ["n_nodules", "n_clusters"], required=False),
+            default=0,
+        )
+        n_default = _as_int(
+            _first_value(scan, ["n_nodules_default"], required=False),
+            default=0,
+        )
+        if n_nodules != 1 or n_default != 0:
+            continue
+
+        case_nodules = nodules_by_case.get(case_id, [])
+        if len(case_nodules) != 1:
+            continue
+        row = case_nodules[0]
+        annotation_count = _as_int(
+            _first_value(row, ["n_annotations", "annotation_count"], required=False),
+            default=0,
+        )
+        if annotation_count not in by_reader_count:
+            continue
+        if _as_bool(
+            _first_value(row, ["in_default_gt", "default_gt"], required=False),
+            default=False,
+        ):
+            continue
+
+        nodule_index = _as_int(
+            _first_value(
+                row,
+                ["nodule_id", "nodule_index", "cluster_id", "nodule_number"],
+                required=False,
+            ),
+            default=1,
+        )
+        if nodule_index < 1:
+            continue
+        diameter = _as_float(
+            _first_value(
+                row,
+                ["diameter_mm", "diameter_mm_median", "diameter", "median_diameter"],
+                required=False,
+            )
+        )
+        malignancy = _as_float(
+            _first_value(
+                row,
+                ["malignancy_score", "malignancy", "malignancy_median"],
+                required=False,
+            )
+        )
+        by_reader_count[annotation_count].append(
+            LIDCAmbiguousCase(
+                role=f"ambiguous_{annotation_count}_reader",
+                case_id=case_id,
+                patient_id=patient_id,
+                series_instance_uid=series_uid,
+                nodule_index=nodule_index,
+                annotation_count=annotation_count,
+                malignancy_score=malignancy,
+                diameter_mm=diameter,
+            )
+        )
+
+    selected: list[LIDCAmbiguousCase] = []
+    used_patients = set(excluded)
+    for reader_count in (1, 2):
+        candidates = [
+            item
+            for item in by_reader_count[reader_count]
+            if item.patient_id not in used_patients
+        ]
+        if not candidates:
+            raise ValueError(
+                f"no clean {reader_count}-reader ambiguous QC candidate found"
+            )
+        candidates.sort(
+            key=lambda item: (
+                item.diameter_mm if item.diameter_mm is not None else float("inf"),
+                item.patient_id,
+                item.case_id,
+            )
+        )
+        choice = candidates[(len(candidates) - 1) // 2]
+        selected.append(choice)
+        used_patients.add(choice.patient_id)
+
+    return selected
 
 
 def medotter_scan_summaries(
