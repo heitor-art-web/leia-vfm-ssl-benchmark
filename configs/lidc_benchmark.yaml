@@ -1,0 +1,76 @@
+project: leia-vfm-ssl-benchmark
+seed: 1337
+
+dataset:
+  name: LIDC-IDRI
+  task: pulmonary_nodule_semantic_segmentation
+  source_format: dicom_plus_lidc_annotations
+  export_root: data/lidc_yolo26
+  ultralytics_data_yaml: configs/lidc_yolo26_sem.yaml
+  split_unit: patient
+  input_representation: 2.5d
+  image_size: 512
+  hu_window: [-1000, 400]
+  mask_values:
+    background: 0
+    nodule: 1
+    ignore_unknown: 255
+  target_policy:
+    min_cluster_readers: 3
+    positive_fraction: 0.5
+
+benchmark:
+  label_fractions: [0.01, 0.05, 0.10, 0.25]
+  seeds: [1337, 2026, 31415]
+  conditions: [SUP, MT, MT_MEDSAM]
+  full_supervision_ceiling: true
+  freeze_patient_split_before_budget_sampling: true
+
+model:
+  task: semantic
+  specialist_family: yolo26-sem
+  smoke_checkpoint: yolo26n-sem.pt
+  benchmark_checkpoint: yolo26s-sem.pt
+  benchmark_checkpoint_selection_rule: >-
+    Pre-declared before benchmark runs for a stronger but still lightweight
+    specialist baseline; do not switch scale based on test-set performance.
+  pretrained_domain: Cityscapes
+  num_classes: 2
+
+ssl:
+  method: mean_teacher
+  ema_decay: 0.99
+  pseudo_threshold: 0.90
+  unsupervised_weight: 1.0
+  rampup_epochs: 20
+  unknown_label: 255
+
+foundation:
+  model: MedSAM
+  role: frozen_co_teacher_pseudo_label_refiner
+  frozen: true
+  prompt_source: ema_teacher_prediction
+  initial_prompt_type: bounding_box
+  ground_truth_prompt_for_unlabelled_or_test: false
+  fusion_policy: agreement_and_confidence
+  rejected_pixels: 255
+
+training:
+  image_size: 512
+  epochs: 150
+  batch_size: 8
+  optimizer: auto
+  pretrained: true
+  deterministic: true
+  early_stopping_patience: 30
+
+metrics:
+  primary: [dice_nodule, iou_nodule]
+  secondary: [hd95, lesion_sensitivity, false_positives_per_scan]
+  pseudo_label: [dice, precision, recall, accepted_pixel_coverage]
+
+reproducibility:
+  report_all_seeds: true
+  patient_level_bootstrap_ci: true
+  no_test_tuning: true
+  preserve_model_outputs_for_audit: true
