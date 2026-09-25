@@ -31,7 +31,7 @@ class LIDCScanSummary:
 
     @property
     def has_volumetric_nodule(self) -> bool:
-        return self.n_clusters > 0 and bool(self.best_annotation_ids)
+        return self.n_clusters > 0 and self.best_cluster_index is not None
 
     @property
     def high_suspicion(self) -> bool:
