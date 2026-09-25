@@ -16,14 +16,14 @@ def _scan(
     n_clusters: int = 1,
     cluster_index: int | None = 0,
     annotation_ids: tuple[int, ...] = (1, 2, 3, 4),
-    readers: int = 4,
+    annotation_count: int = 4,
     malignancy: float | None = 4.0,
     diameter: float | None = 10.0,
 ) -> LIDCScanSummary:
     if n_clusters == 0:
         cluster_index = None
         annotation_ids = ()
-        readers = 0
+        annotation_count = 0
         malignancy = None
         diameter = None
     return LIDCScanSummary(
@@ -32,7 +32,7 @@ def _scan(
         n_clusters=n_clusters,
         best_cluster_index=cluster_index,
         best_annotation_ids=annotation_ids,
-        best_reader_count=readers,
+        best_annotation_count=annotation_count,
         best_malignancy_median=malignancy,
         best_malignancy_mean=malignancy,
         best_malignancy_min=None if malignancy is None else int(malignancy),
