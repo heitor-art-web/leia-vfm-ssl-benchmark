@@ -5,16 +5,20 @@ import csv
 import json
 from pathlib import Path
 
-from leia_benchmark.data.lidc_mirror import medotter_case_map, medotter_scan_summaries
+from leia_benchmark.data.lidc_mirror import (
+    medotter_case_map,
+    medotter_scan_summaries,
+    select_ambiguous_validation_cases,
+)
 from leia_benchmark.data.lidc_validation import select_visual_validation_cohort
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Select and download a five-case LIDC-IDRI visual-QC cohort from the "
-            "public MedOtter mirror: one no-contour control and four high-suspicion "
-            "radiologist-rated nodules."
+            "Select and download a seven-case LIDC-IDRI visual-QC cohort from the "
+            "public MedOtter mirror: one no-contour control, four high-suspicion "
+            "trusted nodules, and clean one-reader/two-reader ambiguous examples."
         )
     )
     parser.add_argument("--output", type=Path, default=Path("data/lidc_bootstrap"))
@@ -79,13 +83,13 @@ def main() -> None:
     scan_rows = _read_csv(metadata_paths["scans.csv"])
     nodule_rows = _read_csv(metadata_paths["nodules.csv"])
     summaries = medotter_scan_summaries(scan_rows, nodule_rows)
-    cohort = select_visual_validation_cohort(
+    trusted_cohort = select_visual_validation_cohort(
         summaries, n_suspicious=args.n_suspicious
     )
     case_map = medotter_case_map(scan_rows)
 
     cohort_rows: list[dict[str, object]] = []
-    for role, scan in cohort:
+    for role, scan in trusted_cohort:
         case_id = case_map[(scan.patient_id, scan.series_instance_uid)]
         cohort_rows.append(
             {
@@ -107,8 +111,38 @@ def main() -> None:
             }
         )
 
+    ambiguous = select_ambiguous_validation_cases(
+        scan_rows,
+        nodule_rows,
+        exclude_patient_ids={str(row["patient_id"]) for row in cohort_rows},
+    )
+    for case in ambiguous:
+        cohort_rows.append(
+            {
+                "role": case.role,
+                "case_id": case.case_id,
+                "patient_id": case.patient_id,
+                "series_uid": case.series_instance_uid,
+                "n_nodules": 1,
+                "selected_nodule_index": case.nodule_index,
+                "n_annotations": case.annotation_count,
+                "malignancy_median": ""
+                if case.malignancy_score is None
+                else case.malignancy_score,
+                "diameter_mm_median": ""
+                if case.diameter_mm is None
+                else case.diameter_mm,
+            }
+        )
+
     if len({str(row["patient_id"]) for row in cohort_rows}) != len(cohort_rows):
         raise RuntimeError("visual-QC cohort unexpectedly contains duplicate patients")
+
+    expected_size = 1 + args.n_suspicious + 2
+    if len(cohort_rows) != expected_size:
+        raise RuntimeError(
+            f"expected {expected_size} QC cases, selected {len(cohort_rows)}"
+        )
 
     missing_files: list[str] = []
     required_files: list[str] = []
@@ -148,9 +182,14 @@ def main() -> None:
                 "four patient-unique scans with >=3 nodule annotations and median "
                 "radiologist malignancy score >=4, spread across the observed diameter range"
             ),
+            "ambiguous": (
+                "one one-reader and one two-reader case; each scan has exactly one "
+                "volumetric nodule, zero default-reference nodules, and is chosen "
+                "deterministically near the middle of its diameter distribution"
+            ),
             "visual_qc": (
-                "the selected nodule is isolated by its masks_instance per-scan nodule id; "
-                "the whole semantic mask is not substituted for the selected lesion"
+                "trusted high-suspicion nodules are isolated by masks_instance id; "
+                "ambiguous cases exercise the scan-wide annotation-count -> UNKNOWN path"
             ),
         },
         "note": (
