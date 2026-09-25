@@ -5,6 +5,9 @@ on:
     branches: [feat/lidc-phase0]
     paths:
       - .github/workflows/lidc-preview-artifact.yml
+      - scripts/bootstrap_lidc_hf.py
+      - scripts/render_lidc_mirror_previews.py
+      - src/leia_benchmark/data/lidc_mirror.py
 
 permissions:
   contents: read
@@ -21,12 +24,12 @@ jobs:
           cache: pip
       - name: Install preview dependencies
         run: python -m pip install --upgrade pip numpy nibabel Pillow huggingface_hub
-      - name: Download pinned five-case LIDC cohort
+      - name: Download pinned five-case LIDC cohort including instance masks
         env:
           PYTHONPATH: src
           HF_HUB_DISABLE_TELEMETRY: "1"
         run: python scripts/bootstrap_lidc_hf.py --output /tmp/lidc_bootstrap
-      - name: Render CT, masks, overlays and crops
+      - name: Render exact selected-nodule CT, mask, overlay and crop
         env:
           PYTHONPATH: src
         run: python scripts/render_lidc_mirror_previews.py --root /tmp/lidc_bootstrap
