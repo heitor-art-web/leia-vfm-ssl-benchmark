@@ -10,6 +10,9 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from leia_benchmark.data.lidc import normalize_hu
+from leia_benchmark.data.lidc_mirror import (
+    semantic_target_from_default_and_annotation_count,
+)
 from leia_benchmark.data.lidc_validation import (
     choose_lung_like_slice,
     choose_max_positive_slice,
@@ -43,21 +46,6 @@ def _verify_alignment(reference: nib.Nifti1Image, other: nib.Nifti1Image, name: 
         )
     if not np.allclose(reference.affine, other.affine, atol=1e-4, rtol=0):
         raise RuntimeError(f"NIfTI affine mismatch for {name}")
-
-
-def _target_from_default_and_counts(mask: np.ndarray, count: np.ndarray) -> np.ndarray:
-    """Build 0/1/255 QC target without inventing negatives.
-
-    1   = default reference foreground (>=3 annotations + consensus rule)
-    255 = annotation evidence excluded from the default reference
-    0   = no volumetric contour evidence at this voxel
-    """
-    trusted = np.asarray(mask) > 0
-    evidence = np.asarray(count) > 0
-    target = np.zeros(trusted.shape, dtype=np.uint8)
-    target[evidence & ~trusted] = 255
-    target[trusted] = 1
-    return target
 
 
 def _overlay(gray: np.ndarray, target: np.ndarray) -> np.ndarray:
@@ -176,7 +164,9 @@ def main() -> None:
         if volume_hu.ndim != 3:
             raise RuntimeError(f"{case_id} CT is not 3D: shape={volume_hu.shape}")
 
-        target = _target_from_default_and_counts(default_mask, annotation_count)
+        target = semantic_target_from_default_and_annotation_count(
+            default_mask, annotation_count
+        )
         role = row["role"]
         if role == "high_suspicion":
             if not np.any(target == 1):
