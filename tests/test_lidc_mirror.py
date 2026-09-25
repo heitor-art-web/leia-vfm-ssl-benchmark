@@ -4,9 +4,13 @@ import pytest
 from leia_benchmark.data.lidc_mirror import (
     medotter_case_map,
     medotter_scan_summaries,
+    selected_instance_target,
     semantic_target_from_default_and_annotation_count,
 )
-from leia_benchmark.data.lidc_validation import select_visual_validation_cohort
+from leia_benchmark.data.lidc_validation import (
+    choose_max_positive_slice,
+    select_visual_validation_cohort,
+)
 
 
 def test_medotter_case_map_uses_patient_and_series_uid():
@@ -43,6 +47,34 @@ def test_medotter_target_rejects_shape_mismatch():
         )
 
 
+def test_selected_instance_target_isolates_requested_nodule_and_slice():
+    instances = np.zeros((6, 6, 4), dtype=np.uint16)
+    # A large unrelated nodule peaks on z=0.
+    instances[0:5, 0:5, 0] = 1
+    # Selected nodule id=2 peaks on z=3.
+    instances[0, 0, 1] = 2
+    instances[2:4, 2:5, 3] = 2
+
+    selected = selected_instance_target(instances, 2)
+
+    assert set(np.unique(selected)) == {0, 1}
+    assert int(selected.sum()) == 7
+    assert not np.any(selected[instances == 1])
+    assert choose_max_positive_slice(selected) == 3
+
+
+def test_selected_instance_target_rejects_missing_id():
+    instances = np.zeros((2, 2, 2), dtype=np.uint16)
+    instances[0, 0, 0] = 1
+    with pytest.raises(ValueError, match="available ids: \[1\]"):
+        selected_instance_target(instances, 2)
+
+
+def test_selected_instance_target_rejects_zero_id():
+    with pytest.raises(ValueError, match=">= 1"):
+        selected_instance_target(np.zeros((2, 2, 2), dtype=np.uint16), 0)
+
+
 def test_medotter_summaries_and_selection_with_live_field_names():
     scans = [
         {"case_id": "CTRL_case", "patient_id": "CTRL", "series_uid": "uid-ctrl", "n_nodules": "0"},
@@ -62,7 +94,7 @@ def test_medotter_summaries_and_selection_with_live_field_names():
             "volume_mm3": "100",
         }
         for i, (patient, diameter) in enumerate(
-            [("A", 5), ("B", 10), ("C", 15), ("D", 20)]
+            [("A", 5), ("B", 10), ("C", 15), ("D", 20)], start=1
         )
     ]
 
