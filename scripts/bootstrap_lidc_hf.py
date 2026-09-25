@@ -37,10 +37,11 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
-def _required_case_files(case_id: str) -> tuple[str, str, str]:
+def _required_case_files(case_id: str) -> tuple[str, str, str, str]:
     return (
         f"images/{case_id}.nii.gz",
         f"masks/{case_id}.nii.gz",
+        f"masks_instance/{case_id}.nii.gz",
         f"masks_annotation_count/{case_id}.nii.gz",
     )
 
@@ -146,6 +147,10 @@ def main() -> None:
             "high_suspicion": (
                 "four patient-unique scans with >=3 nodule annotations and median "
                 "radiologist malignancy score >=4, spread across the observed diameter range"
+            ),
+            "visual_qc": (
+                "the selected nodule is isolated by its masks_instance per-scan nodule id; "
+                "the whole semantic mask is not substituted for the selected lesion"
             ),
         },
         "note": (
