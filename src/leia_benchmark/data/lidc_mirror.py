@@ -100,9 +100,10 @@ def medotter_scan_summaries(
 ) -> list[LIDCScanSummary]:
     """Convert MedOtter scans.csv/nodules.csv into benchmark scan summaries.
 
-    Column aliases are accepted because the mirror metadata may evolve. The
-    function fails loudly when a scan reports nodules but no matching nodule
-    metadata are available.
+    The current mirror exposes the median SR characteristics with names such as
+    ``malignancy_score``, ``diameter_mm`` and ``volume_mm3``. A few aliases are
+    accepted for backwards compatibility. The function fails loudly when a
+    scan reports nodules but no matching nodule metadata are available.
     """
     scans = list(scan_rows)
     nodules = list(nodule_rows)
@@ -155,14 +156,19 @@ def medotter_scan_summaries(
                 _first_value(row, ["in_default_gt", "default_gt"], required=False),
                 default=True,
             )
-            reader_count = _as_int(
+            annotation_count = _as_int(
                 _first_value(row, ["n_annotations", "annotation_count"], required=False),
                 default=0,
             )
             malignancy = _as_float(
                 _first_value(
                     row,
-                    ["malignancy", "malignancy_median", "median_malignancy"],
+                    [
+                        "malignancy_score",
+                        "malignancy",
+                        "malignancy_median",
+                        "median_malignancy",
+                    ],
                     required=False,
                 )
             )
@@ -192,7 +198,7 @@ def medotter_scan_summaries(
                 {
                     "index": nodule_index,
                     "in_default": in_default,
-                    "reader_count": reader_count,
+                    "annotation_count": annotation_count,
                     "malignancy": malignancy,
                     "diameter": diameter,
                     "volume": volume,
@@ -204,9 +210,9 @@ def medotter_scan_summaries(
             diameter = item["diameter"]
             return (
                 bool(item["in_default"]),
-                int(item["reader_count"]) >= 3,
+                int(item["annotation_count"]) >= 3,
                 float(malignancy) if malignancy is not None else -1.0,
-                int(item["reader_count"]),
+                int(item["annotation_count"]),
                 float(diameter) if diameter is not None else -1.0,
                 -int(item["index"]),
             )
@@ -220,7 +226,7 @@ def medotter_scan_summaries(
                 n_clusters=max(n_clusters, len(case_nodules)),
                 best_cluster_index=int(best["index"]),
                 best_annotation_ids=(),
-                best_reader_count=int(best["reader_count"]),
+                best_reader_count=int(best["annotation_count"]),
                 best_malignancy_median=None if malignancy is None else float(malignancy),
                 best_malignancy_mean=None if malignancy is None else float(malignancy),
                 best_malignancy_min=None if malignancy is None else int(round(float(malignancy))),
