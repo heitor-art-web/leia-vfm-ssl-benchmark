@@ -24,12 +24,12 @@ jobs:
           cache: pip
       - name: Install preview dependencies
         run: python -m pip install --upgrade pip numpy nibabel Pillow huggingface_hub
-      - name: Download pinned five-case LIDC cohort including instance masks
+      - name: Download pinned seven-case LIDC cohort including ambiguity examples
         env:
           PYTHONPATH: src
           HF_HUB_DISABLE_TELEMETRY: "1"
         run: python scripts/bootstrap_lidc_hf.py --output /tmp/lidc_bootstrap
-      - name: Render exact selected-nodule CT, mask, overlay and crop
+      - name: Render trusted and UNKNOWN CT overlays
         env:
           PYTHONPATH: src
         run: python scripts/render_lidc_mirror_previews.py --root /tmp/lidc_bootstrap
@@ -40,7 +40,7 @@ jobs:
       - name: Upload visual QC bundle
         uses: actions/upload-artifact@v4
         with:
-          name: lidc-five-case-visual-qc
+          name: lidc-seven-case-visual-qc
           path: /tmp/lidc_bootstrap/previews
           if-no-files-found: error
           retention-days: 14
