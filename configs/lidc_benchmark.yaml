@@ -49,6 +49,9 @@ foundation:
   model: MedSAM
   role: frozen_co_teacher_pseudo_label_refiner
   frozen: true
+  # The specialist sees [z-1, z, z+1]. MedSAM must not see that stack as RGB;
+  # it receives the central CT slice z replicated to 3 channels.
+  image_input: central_slice_replicated_rgb
   prompt_source: ema_teacher_prediction
   initial_prompt_type: bounding_box
   min_teacher_component_pixels: 9
@@ -67,6 +70,11 @@ training:
   pretrained: true
   deterministic: true
   early_stopping_patience: 30
+  # `cls_pw` is intentionally not frozen before the train-only pixel-frequency
+  # audit. Ultralytics semantic training defaults it to 0 (no class weighting).
+  # The final benchmark value must be selected on training/validation data only
+  # and then held fixed across SUP, MT and MT+MedSAM.
+  class_weight_power: null
   augmentation:
     # 2.5D channels are adjacent CT slices, not RGB colour channels.
     # Colour-space augmentation would corrupt that representation.
