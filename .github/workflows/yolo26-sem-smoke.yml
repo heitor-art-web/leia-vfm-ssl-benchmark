@@ -11,6 +11,7 @@ on:
       - scripts/validate_lidc_export.py
       - src/leia_benchmark/data/lidc.py
       - src/leia_benchmark/data/lidc_mirror.py
+      - src/leia_benchmark/data/lidc_targets.py
 
 permissions:
   contents: read
