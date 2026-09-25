@@ -51,6 +51,8 @@ foundation:
   frozen: true
   prompt_source: ema_teacher_prediction
   initial_prompt_type: bounding_box
+  min_teacher_component_pixels: 9
+  box_padding_pixels: 5
   ground_truth_prompt_for_unlabelled_or_test: false
   fusion_policy: agreement_and_confidence
   rejected_pixels: 255
@@ -59,10 +61,30 @@ training:
   image_size: 512
   epochs: 150
   batch_size: 8
-  optimizer: auto
+  optimizer: AdamW
+  learning_rate: 0.001
+  weight_decay: 0.0005
   pretrained: true
   deterministic: true
   early_stopping_patience: 30
+  augmentation:
+    # 2.5D channels are adjacent CT slices, not RGB colour channels.
+    # Colour-space augmentation would corrupt that representation.
+    hsv_h: 0.0
+    hsv_s: 0.0
+    hsv_v: 0.0
+    # Whole-image composites are disabled for anatomic plausibility.
+    mosaic: 0.0
+    mixup: 0.0
+    copy_paste: 0.0
+    # Conservative spatial transforms applied identically to all 3 slices.
+    fliplr: 0.5
+    flipud: 0.0
+    degrees: 5.0
+    translate: 0.05
+    scale: 0.10
+    shear: 0.0
+    perspective: 0.0
 
 metrics:
   primary: [dice_nodule, iou_nodule]
