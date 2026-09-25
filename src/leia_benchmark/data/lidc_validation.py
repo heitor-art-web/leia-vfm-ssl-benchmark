@@ -20,6 +20,7 @@ class LIDCScanSummary:
     series_instance_uid: str
     n_clusters: int
     best_cluster_index: int | None
+    best_annotation_ids: tuple[int, ...]
     best_reader_count: int
     best_malignancy_median: float | None
     best_malignancy_mean: float | None
@@ -30,7 +31,7 @@ class LIDCScanSummary:
 
     @property
     def has_volumetric_nodule(self) -> bool:
-        return self.n_clusters > 0 and self.best_cluster_index is not None
+        return self.n_clusters > 0 and bool(self.best_annotation_ids)
 
     @property
     def high_suspicion(self) -> bool:
