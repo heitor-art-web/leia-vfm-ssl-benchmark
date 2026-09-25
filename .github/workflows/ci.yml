@@ -46,7 +46,19 @@ jobs:
           python scripts/bootstrap_lidc_hf.py
           --metadata-only
           --output /tmp/lidc_bootstrap
+      - name: Show downloaded metadata schema for diagnostics
+        if: always()
+        run: |
+          if [ -f /tmp/lidc_bootstrap/scans.csv ]; then
+            echo '--- scans.csv ---'
+            head -n 3 /tmp/lidc_bootstrap/scans.csv
+          fi
+          if [ -f /tmp/lidc_bootstrap/nodules.csv ]; then
+            echo '--- nodules.csv ---'
+            head -n 3 /tmp/lidc_bootstrap/nodules.csv
+          fi
       - name: Show pinned source and cohort
+        if: success()
         run: |
           cat /tmp/lidc_bootstrap/SOURCE.json
           cat /tmp/lidc_bootstrap/cohort.csv
