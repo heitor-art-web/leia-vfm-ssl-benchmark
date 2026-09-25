@@ -53,9 +53,12 @@ def summarize_scan(scan) -> dict[str, object]:
         }
 
     summaries = [_cluster_summary(cluster) for cluster in clusters]
+    # Prefer clusters supported by at least three radiologists. A single-reader
+    # score of 5 must not hide a 3-4-reader suspicious nodule in the same scan.
     best_index = max(
         range(len(summaries)),
         key=lambda idx: (
+            summaries[idx]["reader_count"] >= 3,
             summaries[idx]["malignancy_median"],
             summaries[idx]["reader_count"],
             summaries[idx]["malignancy_mean"],
