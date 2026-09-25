@@ -10,7 +10,10 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from leia_benchmark.data.lidc import normalize_hu
-from leia_benchmark.data.lidc_mirror import selected_instance_target
+from leia_benchmark.data.lidc_mirror import (
+    selected_instance_target,
+    semantic_target_from_default_and_annotation_count,
+)
 from leia_benchmark.data.lidc_validation import (
     choose_lung_like_slice,
     choose_max_positive_slice,
@@ -20,8 +23,9 @@ from leia_benchmark.data.lidc_validation import (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Render human-QC PNGs from the five-case MedOtter LIDC bootstrap cohort. "
-            "High-suspicion previews isolate the exact nodule selected from nodules.csv."
+            "Render human-QC PNGs from the seven-case MedOtter LIDC bootstrap cohort. "
+            "Trusted cases isolate the exact selected nodule; ambiguous cases exercise "
+            "the semantic UNKNOWN/ignore path."
         )
     )
     parser.add_argument("--root", type=Path, default=Path("data/lidc_bootstrap"))
@@ -47,33 +51,38 @@ def _verify_alignment(reference: nib.Nifti1Image, other: nib.Nifti1Image, name: 
         raise RuntimeError(f"NIfTI affine mismatch for {name}")
 
 
-def _overlay(gray: np.ndarray, selected: np.ndarray) -> np.ndarray:
+def _overlay(gray: np.ndarray, target: np.ndarray) -> np.ndarray:
     base = np.repeat(gray[:, :, None], 3, axis=2).astype(np.float32)
     out = base.copy()
-    positive = selected == 1
-    if np.any(positive):
-        alpha = 0.45
+    alpha = 0.45
+    trusted = target == 1
+    unknown = target == 255
+    if np.any(trusted):
         green = np.array([30.0, 220.0, 70.0], dtype=np.float32)
-        out[positive] = (1.0 - alpha) * out[positive] + alpha * green
+        out[trusted] = (1.0 - alpha) * out[trusted] + alpha * green
+    if np.any(unknown):
+        amber = np.array([255.0, 170.0, 20.0], dtype=np.float32)
+        out[unknown] = (1.0 - alpha) * out[unknown] + alpha * amber
     return np.clip(np.rint(out), 0, 255).astype(np.uint8)
 
 
-def _mask_preview(selected: np.ndarray) -> np.ndarray:
-    out = np.zeros(selected.shape, dtype=np.uint8)
-    out[selected == 1] = 255
+def _mask_preview(target: np.ndarray) -> np.ndarray:
+    out = np.zeros(target.shape, dtype=np.uint8)
+    out[target == 255] = 127
+    out[target == 1] = 255
     return out
 
 
-def _crop_bounds(selected: np.ndarray, margin: int) -> tuple[slice, slice]:
-    evidence = np.argwhere(selected == 1)
+def _crop_bounds(target: np.ndarray, margin: int) -> tuple[slice, slice]:
+    evidence = np.argwhere(target != 0)
     if evidence.size == 0:
-        return slice(0, selected.shape[0]), slice(0, selected.shape[1])
+        return slice(0, target.shape[0]), slice(0, target.shape[1])
     r0, c0 = evidence.min(axis=0)
     r1, c1 = evidence.max(axis=0)
     r0 = max(0, int(r0) - margin)
     c0 = max(0, int(c0) - margin)
-    r1 = min(selected.shape[0], int(r1) + margin + 1)
-    c1 = min(selected.shape[1], int(c1) + margin + 1)
+    r1 = min(target.shape[0], int(r1) + margin + 1)
+    c1 = min(target.shape[1], int(c1) + margin + 1)
     return slice(r0, r1), slice(c0, c1)
 
 
@@ -88,23 +97,28 @@ def _panel(image: Image.Image, title: str) -> Image.Image:
 
 def _contact_sheet(
     ct: np.ndarray,
-    selected: np.ndarray,
+    target: np.ndarray,
     overlay: np.ndarray,
     crop: np.ndarray,
     *,
+    role: str,
     selected_id: str,
 ) -> Image.Image:
+    if role == "high_suspicion":
+        mask_title = f"Trusted selected nodule: id={selected_id}"
+    elif role.startswith("ambiguous_"):
+        mask_title = "Semantic mask: gray = UNKNOWN / ignore"
+    else:
+        mask_title = "Semantic mask: no volumetric evidence"
+
     panels = [
         _panel(Image.fromarray(ct, mode="L"), "CT: lung window"),
-        _panel(
-            Image.fromarray(_mask_preview(selected), mode="L"),
-            f"Selected nodule mask: id={selected_id}",
-        ),
+        _panel(Image.fromarray(_mask_preview(target), mode="L"), mask_title),
         _panel(
             Image.fromarray(overlay, mode="RGB"),
-            "Overlay: green = selected nodule only",
+            "Overlay: green=trusted, amber=UNKNOWN",
         ),
-        _panel(Image.fromarray(crop, mode="RGB"), "Selected-nodule crop"),
+        _panel(Image.fromarray(crop, mode="RGB"), "Evidence crop"),
     ]
     width = max(panel.width for panel in panels)
     height = max(panel.height for panel in panels)
@@ -121,18 +135,20 @@ def _write_html(rows: list[dict[str, object]], output: Path) -> None:
         case_id = html.escape(str(row["case_id"]))
         malignancy = html.escape(str(row.get("malignancy_median", "")))
         selected_id = html.escape(str(row.get("selected_nodule_index", "")))
+        n_annotations = html.escape(str(row.get("n_annotations", "")))
         image_path = html.escape(str(row["contact_sheet"]))
         cards.append(
             f"<section><h2>{case_id}</h2><p>{role} | selected nodule id: "
-            f"{selected_id or 'n/a'} | radiologist malignancy median: "
-            f"{malignancy or 'n/a'}</p><img src='{image_path}' style='max-width:100%'></section>"
+            f"{selected_id or 'n/a'} | annotations: {n_annotations or 'n/a'} | "
+            f"radiologist malignancy median: {malignancy or 'n/a'}</p>"
+            f"<img src='{image_path}' style='max-width:100%'></section>"
         )
     page = """<!doctype html>
 <html><head><meta charset='utf-8'><title>LIDC visual validation</title>
 <style>body{font-family:system-ui;max-width:1200px;margin:2rem auto;padding:0 1rem}section{margin:2rem 0;border-bottom:1px solid #ddd;padding-bottom:2rem}</style>
-</head><body><h1>LIDC-IDRI five-case visual validation</h1>
-<p>For high-suspicion cases, green shows only the exact nodule id selected from the radiologist metadata. Other nodules in the same scan are deliberately not overlaid. The malignancy value is a radiologist likelihood score, not pathology confirmation.</p>
-<p>The full segmentation benchmark still uses explicit UNKNOWN/ignore regions. This lesion-specific visual QC does not derive per-nodule UNKNOWN pixels from the scan-wide annotation-count volume, because doing so could mix evidence from another nodule.</p>
+</head><body><h1>LIDC-IDRI seven-case visual validation</h1>
+<p>Green denotes trusted default-reference foreground. Amber denotes contour evidence that is deliberately UNKNOWN/ignored rather than forced to background. For high-suspicion trusted cases, the overlay isolates only the exact metadata-selected nodule instance. The one-reader and two-reader cases are restricted to scans with exactly one volumetric nodule and no default-reference nodule, so scan-wide annotation-count evidence is unambiguous for this QC purpose.</p>
+<p>LIDC malignancy is a subjective radiologist likelihood score, not pathology-confirmed cancer.</p>
 """ + "\n".join(cards) + "\n</body></html>"
     (output / "index.html").write_text(page, encoding="utf-8")
 
@@ -181,19 +197,44 @@ def main() -> None:
 
         role = row["role"]
         selected_id_text = row.get("selected_nodule_index", "").strip()
+        selected_id = int(selected_id_text) if selected_id_text else None
+        target: np.ndarray
+        selected_instance = None
+
         if role == "high_suspicion":
-            if not selected_id_text:
+            if selected_id is None:
                 raise RuntimeError(f"{case_id} high_suspicion row lacks selected_nodule_index")
-            selected_id = int(selected_id_text)
-            selected = selected_instance_target(instance_mask, selected_id)
-            if not np.any(annotation_count[selected == 1] > 0):
+            selected_instance = selected_instance_target(instance_mask, selected_id)
+            if not np.any(annotation_count[selected_instance == 1] > 0):
                 raise RuntimeError(
                     f"{case_id} selected nodule id {selected_id} has no annotation-count evidence"
                 )
-            z = choose_max_positive_slice(selected)
+            target = selected_instance.astype(np.uint8)
+            z = choose_max_positive_slice(target)
+        elif role in {"ambiguous_1_reader", "ambiguous_2_reader"}:
+            expected_readers = 1 if role == "ambiguous_1_reader" else 2
+            if int(row.get("n_annotations", "0")) != expected_readers:
+                raise RuntimeError(
+                    f"{case_id} {role} metadata does not match expected annotation count"
+                )
+            if np.any(default_mask > 0):
+                raise RuntimeError(
+                    f"{case_id} {role} unexpectedly contains trusted default foreground"
+                )
+            target = semantic_target_from_default_and_annotation_count(
+                default_mask, annotation_count
+            )
+            if np.any(target == 1) or not np.any(target == 255):
+                raise RuntimeError(
+                    f"{case_id} {role} does not produce a pure UNKNOWN foreground example"
+                )
+            if int(np.max(annotation_count)) > expected_readers:
+                raise RuntimeError(
+                    f"{case_id} {role} annotation-count volume exceeds metadata reader count"
+                )
+            z = choose_max_positive_slice(target, positive_label=255)
         else:
-            selected_id = None
-            selected = np.zeros(volume_hu.shape, dtype=np.uint8)
+            target = np.zeros(volume_hu.shape, dtype=np.uint8)
             if role == "control_no_volumetric_nodule":
                 if np.any(instance_mask > 0) or np.any(default_mask > 0) or np.any(annotation_count > 0):
                     raise RuntimeError(
@@ -202,22 +243,24 @@ def main() -> None:
             z = choose_lung_like_slice(volume_hu)
 
         ct = normalize_hu(volume_hu[:, :, z], low=args.window_low, high=args.window_high)
-        selected_slice = selected[:, :, z]
-        overlay = _overlay(ct, selected_slice)
-        rs, cs = _crop_bounds(selected_slice, args.crop_margin)
+        target_slice = target[:, :, z]
+        overlay = _overlay(ct, target_slice)
+        rs, cs = _crop_bounds(target_slice, args.crop_margin)
         crop = overlay[rs, cs]
 
         other_nodule_pixels = 0
-        default_overlap_fraction = ""
-        if selected_id is not None:
+        default_overlap_fraction: float | str = ""
+        if selected_instance is not None and selected_id is not None:
             other_nodule_pixels = int(
                 np.count_nonzero(
                     (instance_mask[:, :, z] > 0)
                     & (instance_mask[:, :, z] != selected_id)
                 )
             )
-            selected_voxels = int(np.count_nonzero(selected))
-            overlap_voxels = int(np.count_nonzero((selected == 1) & (default_mask > 0)))
+            selected_voxels = int(np.count_nonzero(selected_instance))
+            overlap_voxels = int(
+                np.count_nonzero((selected_instance == 1) & (default_mask > 0))
+            )
             default_overlap_fraction = (
                 float(overlap_voxels / selected_voxels) if selected_voxels else 0.0
             )
@@ -225,14 +268,15 @@ def main() -> None:
         case_dir = output / case_id
         case_dir.mkdir(parents=True, exist_ok=True)
         Image.fromarray(ct, mode="L").save(case_dir / "ct.png")
-        Image.fromarray(_mask_preview(selected_slice), mode="L").save(case_dir / "mask.png")
+        Image.fromarray(_mask_preview(target_slice), mode="L").save(case_dir / "mask.png")
         Image.fromarray(overlay, mode="RGB").save(case_dir / "overlay.png")
         Image.fromarray(crop, mode="RGB").save(case_dir / "crop.png")
         _contact_sheet(
             ct,
-            selected_slice,
+            target_slice,
             overlay,
             crop,
+            role=role,
             selected_id="n/a" if selected_id is None else str(selected_id),
         ).save(case_dir / "contact_sheet.png")
 
@@ -240,7 +284,9 @@ def main() -> None:
             {
                 **row,
                 "slice_index": z,
-                "selected_instance_pixels_on_slice": int(np.count_nonzero(selected_slice)),
+                "trusted_pixels_on_slice": int(np.count_nonzero(target_slice == 1)),
+                "unknown_pixels_on_slice": int(np.count_nonzero(target_slice == 255)),
+                "max_annotation_count_on_slice": int(np.max(annotation_count[:, :, z])),
                 "other_instance_pixels_on_slice": other_nodule_pixels,
                 "selected_instance_default_overlap_fraction_3d": default_overlap_fraction,
                 "contact_sheet": str(Path(case_id) / "contact_sheet.png"),
@@ -255,7 +301,7 @@ def main() -> None:
     _write_html(report, output)
 
     print(f"Rendered {len(report)} cases to {output.resolve()}")
-    print(f"Open {output / 'index.html'} to validate all five cases.")
+    print(f"Open {output / 'index.html'} to validate all cases.")
 
 
 if __name__ == "__main__":
