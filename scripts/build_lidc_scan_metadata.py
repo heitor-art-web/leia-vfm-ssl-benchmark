@@ -24,7 +24,7 @@ def _cluster_summary(cluster) -> dict[str, object]:
     annotation_ids = tuple(sorted(int(ann.id) for ann in cluster))
     return {
         "annotation_ids": ";".join(str(value) for value in annotation_ids),
-        "reader_count": len(cluster),
+        "annotation_count": len(cluster),
         "malignancy_median": float(median(malignancies)),
         "malignancy_mean": float(mean(malignancies)),
         "malignancy_min": min(malignancies),
@@ -43,7 +43,7 @@ def summarize_scan(scan) -> dict[str, object]:
             "n_clusters": 0,
             "best_cluster_index": "",
             "best_annotation_ids": "",
-            "best_reader_count": 0,
+            "best_annotation_count": 0,
             "best_malignancy_median": "",
             "best_malignancy_mean": "",
             "best_malignancy_min": "",
@@ -53,14 +53,14 @@ def summarize_scan(scan) -> dict[str, object]:
         }
 
     summaries = [_cluster_summary(cluster) for cluster in clusters]
-    # Prefer clusters supported by at least three radiologists. A single-reader
-    # score of 5 must not hide a 3-4-reader suspicious nodule in the same scan.
+    # LIDC exposes annotation objects but not stable reader identity. Prefer a
+    # cluster supported by >=3 annotations before comparing suspicion scores.
     best_index = max(
         range(len(summaries)),
         key=lambda idx: (
-            summaries[idx]["reader_count"] >= 3,
+            summaries[idx]["annotation_count"] >= 3,
             summaries[idx]["malignancy_median"],
-            summaries[idx]["reader_count"],
+            summaries[idx]["annotation_count"],
             summaries[idx]["malignancy_mean"],
             summaries[idx]["diameter_mm_median"],
             -idx,
@@ -73,7 +73,7 @@ def summarize_scan(scan) -> dict[str, object]:
         "n_clusters": len(clusters),
         "best_cluster_index": best_index,
         "best_annotation_ids": best["annotation_ids"],
-        "best_reader_count": best["reader_count"],
+        "best_annotation_count": best["annotation_count"],
         "best_malignancy_median": best["malignancy_median"],
         "best_malignancy_mean": best["malignancy_mean"],
         "best_malignancy_min": best["malignancy_min"],
@@ -101,8 +101,8 @@ def main() -> None:
 
     print(f"Wrote {len(rows)} scan summaries to {args.out.resolve()}")
     print(
-        "Reminder: LIDC malignancy 1-5 is a subjective radiologist rating, "
-        "not a pathology-confirmed cancer label."
+        "Reminder: LIDC malignancy 1-5 is a subjective radiologist rating, not a "
+        "pathology-confirmed cancer label; annotation count is not reader identity."
     )
 
 
