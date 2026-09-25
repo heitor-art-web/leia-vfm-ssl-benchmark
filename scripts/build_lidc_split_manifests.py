@@ -146,22 +146,24 @@ def main() -> None:
     if args.source_json is not None:
         source = json.loads(args.source_json.read_text(encoding="utf-8"))
 
+    source_summary = {
+        "repo_id": source.get("repo_id"),
+        "resolved_revision": source.get("resolved_revision"),
+    }
+    split_policy = {
+        "unit": "patient",
+        "seed": args.split_seed,
+        "train_fraction": args.train_fraction,
+        "val_fraction": args.val_fraction,
+        "test_fraction": args.test_fraction,
+        "heldout_stratification": "has_default_nodule",
+        "label_budget_sampling": "target-blind deterministic hash ordering; nested within seed",
+        "label_fractions": list(FRACTIONS),
+        "label_seeds": list(SEEDS),
+    }
     summary = {
-        "source": {
-            "repo_id": source.get("repo_id"),
-            "resolved_revision": source.get("resolved_revision"),
-        },
-        "split_policy": {
-            "unit": "patient",
-            "seed": args.split_seed,
-            "train_fraction": args.train_fraction,
-            "val_fraction": args.val_fraction,
-            "test_fraction": args.test_fraction,
-            "heldout_stratification": "has_default_nodule",
-            "label_budget_sampling": "target-blind deterministic hash ordering; nested within seed",
-            "label_fractions": list(FRACTIONS),
-            "label_seeds": list(SEEDS),
-        },
+        "source": source_summary,
+        "split_policy": split_policy,
         "counts": {
             "patients_total": len(patients),
             "patients_with_default_nodule": sum(patient.has_default_nodule for patient in patients),
@@ -179,6 +181,23 @@ def main() -> None:
     }
     (args.out / "summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
+    )
+
+    frozen_manifest = {
+        "source": source_summary,
+        "split_policy": split_policy,
+        "splits": {name: list(patient_ids) for name, patient_ids in split.items()},
+        "labelled": {
+            f"seed{seed}": {
+                _fraction_tag(fraction): list(labelled[(seed, fraction)])
+                for fraction in FRACTIONS
+            }
+            for seed in SEEDS
+        },
+        "note": "Unlabelled patients are exactly train minus the corresponding labelled subset.",
+    }
+    (args.out / "manifest.json").write_text(
+        json.dumps(frozen_manifest, indent=2, sort_keys=True), encoding="utf-8"
     )
 
     print(json.dumps(summary, indent=2, sort_keys=True))
