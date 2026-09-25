@@ -48,6 +48,7 @@ def _load(path: Path) -> list[LIDCScanSummary]:
 
     scans: list[LIDCScanSummary] = []
     for row in rows:
+        count_value = row.get("best_annotation_count", row.get("best_reader_count", "0"))
         scans.append(
             LIDCScanSummary(
                 patient_id=row["patient_id"],
@@ -55,7 +56,7 @@ def _load(path: Path) -> list[LIDCScanSummary]:
                 n_clusters=int(row["n_clusters"]),
                 best_cluster_index=_optional_int(row["best_cluster_index"]),
                 best_annotation_ids=_annotation_ids(row.get("best_annotation_ids", "")),
-                best_reader_count=int(row["best_reader_count"]),
+                best_annotation_count=int(count_value),
                 best_malignancy_median=_optional_float(row["best_malignancy_median"]),
                 best_malignancy_mean=_optional_float(row["best_malignancy_mean"]),
                 best_malignancy_min=_optional_int(row["best_malignancy_min"]),
@@ -80,7 +81,7 @@ def main() -> None:
         "series_instance_uid",
         "cluster_index",
         "annotation_ids",
-        "reader_count",
+        "annotation_count",
         "malignancy_median",
         "malignancy_mean",
         "malignancy_min",
@@ -101,7 +102,7 @@ def main() -> None:
                     if scan.best_cluster_index is None
                     else scan.best_cluster_index,
                     "annotation_ids": ";".join(str(value) for value in scan.best_annotation_ids),
-                    "reader_count": scan.best_reader_count,
+                    "annotation_count": scan.best_annotation_count,
                     "malignancy_median": ""
                     if scan.best_malignancy_median is None
                     else scan.best_malignancy_median,
@@ -125,8 +126,8 @@ def main() -> None:
 
     print(f"Wrote {len(cohort)} validation cases to {args.out.resolve()}")
     print(
-        "Roles describe radiologist annotation/risk strata only. "
-        "high_suspicion is not a pathology-confirmed cancer label."
+        "Roles describe annotation/risk strata only. high_suspicion is not a "
+        "pathology-confirmed cancer label, and annotation count is not reader identity."
     )
 
 
