@@ -50,15 +50,16 @@ def semantic_target_from_default_and_annotation_count(
     default_mask: np.ndarray,
     annotation_count: np.ndarray,
 ) -> np.ndarray:
-    """Build a 0/1/255 target from MedOtter default and count masks.
+    """Build a 0/1/255 semantic target from MedOtter masks.
 
-    1   = default reference foreground (>=3 annotations and 50% consensus)
-    255 = some contour evidence exists but the voxel is outside that trusted
+    1   = trusted default-reference foreground
+    255 = some contour evidence exists but the voxel is outside the trusted
           default reference
     0   = no volumetric contour evidence at the voxel
 
-    This is intentionally conservative: evidence excluded from the default
-    reference is UNKNOWN, not forced to background.
+    This target is appropriate for the full semantic segmentation task. It is
+    deliberately conservative: excluded contour evidence is UNKNOWN, not
+    forced to background.
     """
     mask = np.asarray(default_mask)
     count = np.asarray(annotation_count)
@@ -77,6 +78,35 @@ def semantic_target_from_default_and_annotation_count(
     target[evidence & ~trusted] = 255
     target[trusted] = 1
     return target
+
+
+def selected_instance_target(
+    instance_mask: np.ndarray,
+    nodule_index: int,
+) -> np.ndarray:
+    """Return a binary target containing exactly one LIDC nodule instance.
+
+    The MedOtter mirror documents ``masks_instance`` as a per-scan nodule-id
+    volume. Visual QC of a malignancy-selected nodule must therefore isolate
+    that id instead of displaying the whole scan-level semantic mask, which may
+    contain larger unrelated nodules.
+    """
+    instances = np.asarray(instance_mask)
+    if instances.ndim != 3:
+        raise ValueError("instance_mask must be 3D")
+    if nodule_index < 1:
+        raise ValueError("nodule_index must be >= 1")
+    if not np.all(np.isfinite(instances)):
+        raise ValueError("instance_mask contains non-finite values")
+
+    selected = instances == nodule_index
+    if not np.any(selected):
+        available = sorted(int(v) for v in np.unique(instances) if int(v) > 0)
+        raise ValueError(
+            f"nodule_index {nodule_index} is absent from instance_mask; "
+            f"available ids: {available}"
+        )
+    return selected.astype(np.uint8)
 
 
 def medotter_case_map(scan_rows: Iterable[Mapping[str, str]]) -> dict[tuple[str, str], str]:
