@@ -1,0 +1,12 @@
+# Ultralytics semantic-segmentation dataset config for the exported LIDC-IDRI benchmark.
+# Set `path` to the local export root produced by scripts/export_lidc_semantic.py.
+
+path: data/lidc_yolo
+train: images/train
+val: images/val
+test: images/test
+masks_dir: masks
+
+names:
+  0: background
+  1: pulmonary_nodule_ge_3mm
