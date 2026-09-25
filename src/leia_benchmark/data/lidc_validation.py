@@ -60,9 +60,6 @@ def _evenly_spaced_indices(length: int, count: int) -> list[int]:
     if count == 1:
         return [length // 2]
 
-    # Round positions on an inclusive linspace, then repair any duplicate
-    # indices deterministically. This gives broad size coverage without
-    # cherry-picking individual cases.
     raw = np.rint(np.linspace(0, length - 1, count)).astype(int).tolist()
     used: set[int] = set()
     out: list[int] = []
@@ -79,6 +76,33 @@ def _evenly_spaced_indices(length: int, count: int) -> list[int]:
     return sorted(out)
 
 
+def _scan_strength(scan: LIDCScanSummary) -> tuple:
+    """Rank scans within one patient without using model predictions."""
+    return (
+        scan.high_suspicion,
+        scan.has_volumetric_nodule,
+        scan.best_reader_count >= 3,
+        scan.best_malignancy_median if scan.best_malignancy_median is not None else -1.0,
+        scan.best_reader_count,
+        scan.best_diameter_mm_median if scan.best_diameter_mm_median is not None else -1.0,
+        scan.series_instance_uid,
+    )
+
+
+def _collapse_to_one_scan_per_patient(scans: Iterable[LIDCScanSummary]) -> list[LIDCScanSummary]:
+    grouped: dict[str, list[LIDCScanSummary]] = {}
+    for scan in scans:
+        grouped.setdefault(scan.patient_id, []).append(scan)
+
+    representatives: list[LIDCScanSummary] = []
+    for patient_id in sorted(grouped):
+        patient_scans = grouped[patient_id]
+        # If a patient has two scans, keep the stronger annotated scan. This
+        # prevents the same patient appearing as both control and suspicious.
+        representatives.append(max(patient_scans, key=_scan_strength))
+    return representatives
+
+
 def select_visual_validation_cohort(
     scans: Sequence[LIDCScanSummary] | Iterable[LIDCScanSummary],
     *,
@@ -87,17 +111,18 @@ def select_visual_validation_cohort(
     """Select one control-like case and several high-suspicion cases.
 
     Selection policy:
-    1. Prefer a scan with no volumetrically annotated >=3 mm nodule as the
+    1. Collapse multiple scans to one representative per patient.
+    2. Prefer a patient with no volumetrically annotated >=3 mm nodule as the
        control. If none is available, use a low-suspicion scan (median score
-       <=2, >=3 readers). The role name records which fallback was used.
-    2. High-suspicion cases require median malignancy >=4 and >=3 readers.
-    3. Suspicious cases are spread across the observed nodule-diameter range
+       <=2, >=3 annotations).
+    3. High-suspicion cases require median malignancy >=4 and >=3 annotations.
+    4. Suspicious cases are spread across the observed nodule-diameter range
        rather than hand-picked.
 
-    The LIDC malignancy score is a radiologist likelihood rating and must not
-    be relabelled as pathology-confirmed cancer.
+    LIDC malignancy is a radiologist likelihood rating and must not be
+    relabelled as pathology-confirmed cancer.
     """
-    items = sorted(list(scans), key=lambda x: x.patient_id)
+    items = _collapse_to_one_scan_per_patient(scans)
     if not items:
         raise ValueError("no scan summaries supplied")
     if n_suspicious < 1:
@@ -105,7 +130,7 @@ def select_visual_validation_cohort(
 
     no_nodule = [scan for scan in items if not scan.has_volumetric_nodule]
     if no_nodule:
-        control = no_nodule[0]
+        control = sorted(no_nodule, key=lambda x: x.patient_id)[0]
         control_role = "control_no_volumetric_nodule"
     else:
         low = [scan for scan in items if scan.low_suspicion]
