@@ -66,7 +66,7 @@ def test_selected_instance_target_isolates_requested_nodule_and_slice():
 def test_selected_instance_target_rejects_missing_id():
     instances = np.zeros((2, 2, 2), dtype=np.uint16)
     instances[0, 0, 0] = 1
-    with pytest.raises(ValueError, match="available ids: \[1\]"):
+    with pytest.raises(ValueError, match=r"available ids: \[1\]"):
         selected_instance_target(instances, 2)
 
 
