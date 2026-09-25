@@ -21,7 +21,9 @@ def _cluster_summary(cluster) -> dict[str, object]:
     malignancies = [int(ann.malignancy) for ann in cluster]
     diameters = [float(ann.diameter) for ann in cluster]
     volumes = [float(ann.volume) for ann in cluster]
+    annotation_ids = tuple(sorted(int(ann.id) for ann in cluster))
     return {
+        "annotation_ids": ";".join(str(value) for value in annotation_ids),
         "reader_count": len(cluster),
         "malignancy_median": float(median(malignancies)),
         "malignancy_mean": float(mean(malignancies)),
@@ -40,6 +42,7 @@ def summarize_scan(scan) -> dict[str, object]:
             "series_instance_uid": scan.series_instance_uid,
             "n_clusters": 0,
             "best_cluster_index": "",
+            "best_annotation_ids": "",
             "best_reader_count": 0,
             "best_malignancy_median": "",
             "best_malignancy_mean": "",
@@ -66,6 +69,7 @@ def summarize_scan(scan) -> dict[str, object]:
         "series_instance_uid": scan.series_instance_uid,
         "n_clusters": len(clusters),
         "best_cluster_index": best_index,
+        "best_annotation_ids": best["annotation_ids"],
         "best_reader_count": best["reader_count"],
         "best_malignancy_median": best["malignancy_median"],
         "best_malignancy_mean": best["malignancy_mean"],
