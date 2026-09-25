@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 from typing import Iterable, Sequence
 import re
@@ -184,6 +185,21 @@ def slice_has_signal(mask: np.ndarray) -> bool:
     if arr.ndim != 2:
         raise ValueError("mask must be 2D")
     return bool(np.any((arr == NODULE_LABEL) | (arr == IGNORE_LABEL)))
+
+
+def stable_scan_key(patient_id: str, series_instance_uid: str) -> str:
+    """Return a filesystem-safe stable scan identifier.
+
+    LIDC-IDRI has 1,010 patients but 1,018 CT series, so patient ID alone is not
+    a unique scan key. Hashing the DICOM SeriesInstanceUID prevents filename
+    collisions while keeping patient identity visible for leakage checks.
+    """
+    patient = patient_id_from_path(patient_id)
+    uid = str(series_instance_uid).strip()
+    if not uid:
+        raise ValueError("series_instance_uid is empty")
+    suffix = hashlib.sha1(uid.encode("utf-8")).hexdigest()[:12]
+    return f"{patient}_{suffix}"
 
 
 def patient_id_from_path(path: str | Path) -> str:
