@@ -29,6 +29,20 @@ def _validate_rgb_uint8(image: np.ndarray) -> np.ndarray:
     return image
 
 
+def medsam_rgb_from_25d(image_25d_uint8: np.ndarray) -> np.ndarray:
+    """Convert specialist 2.5D input into a MedSAM-compatible grayscale RGB image.
+
+    The YOLO specialist receives `[z-1, z, z+1]` as three channels. Those
+    channels must **not** be passed directly to MedSAM as pseudo-colour RGB.
+    MedSAM's phase-1 input is the central CT slice `z` replicated three times,
+    preserving its expected 2D medical-image semantics while keeping specialist
+    and VFM coordinates identical.
+    """
+    image = _validate_rgb_uint8(image_25d_uint8)
+    central = image[:, :, 1]
+    return np.repeat(central[:, :, None], 3, axis=2)
+
+
 def _validate_box_xyxy(box_xyxy: np.ndarray, height: int, width: int) -> np.ndarray:
     box = np.asarray(box_xyxy, dtype=np.float32).reshape(-1)
     if box.shape != (4,):
@@ -71,9 +85,10 @@ class MedSAMRefiner:
     1024x1024 frame, min-max normalizes it to [0, 1], encodes the image directly,
     scales the box into the same frame, and decodes one binary mask.
 
-    Keeping this wrapper small makes the VFM contribution auditable and avoids
-    silently changing prompt/image transforms relative to MedSAM's reference
-    inference implementation.
+    The caller should use `medsam_rgb_from_25d()` when the specialist input is
+    the benchmark's `[z-1, z, z+1]` representation. Feeding that 2.5D tensor
+    directly as RGB would create an artificial pseudo-colour image outside the
+    intended MedSAM input semantics.
     """
 
     def __init__(self, cfg: MedSAMConfig):
