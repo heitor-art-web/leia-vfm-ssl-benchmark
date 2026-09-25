@@ -2,92 +2,179 @@
 
 ## Dataset
 
-ACDC public training database: 100 patients with expert segmentations and five diagnostic groups.
+Primary dataset: **LIDC-IDRI thoracic CT**.
 
-### Split discipline
+Phase-1 target: pulmonary nodule semantic segmentation from expert contour annotations.
 
-**Never split by slice.** Every slice/frame from a patient must remain in the same partition.
+Before freezing any split, run `scripts/audit_lidc_annotations.py` to inspect per-patient nodule-cluster counts and reader-agreement density.
 
-Recommended first-stage split:
+## Split discipline
 
-- 20 patients frozen test set, stratified by diagnostic group;
-- 10 patients validation set, stratified where possible;
-- 70 patients train pool.
+**Never split by slice.** Every slice from one patient must remain in the same partition.
 
-For each seed and label fraction, select labelled patients **only from the train pool**. The remaining train patients are treated as unlabelled.
+The split policy must be frozen and versioned only after inspecting the annotation audit. The initial split should preserve patient-level independence and should avoid accidental concentration of high-agreement nodule cases in one partition.
 
-A stronger second stage is 5-fold patient-level cross-validation.
+For each annotation budget, select labelled patients **only from the frozen train pool**. The remaining train patients are treated as unlabelled.
+
+Exact patient IDs must be stored in versioned split files.
 
 ## Annotation budgets
 
-If train pool = 70 patients:
+Core budgets:
 
-- 1% → 1 labelled patient (round up)
-- 5% → 4 labelled patients
-- 10% → 7 labelled patients
-- 25% → 18 labelled patients
+- 1%
+- 5%
+- 10%
+- 25%
 
-Store exact patient IDs in versioned JSON split files. Percentage labels in papers are not sufficiently reproducible without IDs.
+Optional ceiling:
 
-## Preprocessing
+- 100% supervised
 
-- Load native NIfTI volumes.
-- Use ED/ES frames with ground truth.
-- Resample/resize to a fixed in-plane size only if required by the specialist.
-- Normalise per image or per volume with a frozen policy.
-- For MedSAM, convert the single-channel MRI slice to 3-channel input without changing semantic content.
-- Do not use test-set statistics.
+Budget counts are computed from the final frozen training-patient pool, not from slices.
+
+At very small budgets, especially 1%, variance may be high. If the audit shows heterogeneous nodule burden, use more seeds or a pre-declared constrained sampling rule rather than post-hoc cherry-picking.
+
+## Input preprocessing
+
+### DICOM → HU
+
+Read DICOM slices in pylidc's scan order and explicitly apply `RescaleSlope` and `RescaleIntercept`.
+
+### 2.5D representation
+
+For central axial slice `z`:
+
+```text
+channel 0 = z-1
+channel 1 = z
+channel 2 = z+1
+```
+
+Replicate edge slices.
+
+### Intensity window
+
+The converter exposes configurable lower/upper HU limits.
+
+The initial engineering default is `[-1000, 400] HU`. This is a tunable preprocessing parameter, not a clinical truth. Freeze it before benchmark runs and do not tune it on test performance.
+
+## Human target construction
+
+Use `pylidc` to cluster annotations referring to the same physical nodule.
+
+Use `pylidc.utils.consensus(..., ret_masks=True)` only to align reader masks into a common bounding box. The benchmark then applies its own conservative target policy.
+
+Default policy:
+
+- cluster has fewer than 3 reader annotations → annotation union becomes `UNKNOWN=255`;
+- eligible cluster with `N` masks → positive threshold `ceil(0.5 × N)`;
+- pixels meeting threshold → `nodule=1`;
+- pixels in the reader union but below threshold → `UNKNOWN=255`;
+- other pixels → `background=0`.
+
+When cluster targets overlap, precedence is:
+
+```text
+trusted positive > UNKNOWN > background
+```
+
+This avoids erasing strong positive evidence with an overlapping ambiguous target.
+
+The target policy itself must be sensitivity-tested later.
+
+## Dataset export
+
+YOLO26 semantic layout:
+
+```text
+dataset/
+├── images/{train,val,test}/
+└── masks/{train,val,test}/
+```
+
+Each image is a 2.5D RGB PNG and each mask is a single-channel PNG with values `{0,1,255}`.
+
+Run `scripts/validate_lidc_yolo26.py` before training. Validation checks:
+
+- image/mask pairing;
+- size consistency;
+- allowed mask values;
+- patient leakage across splits.
 
 ## Supervised specialist baseline (SUP)
 
-2D U-Net trained on labelled slices from labelled patients.
+YOLO26 semantic segmentation trained only on labelled patients.
 
-Loss:
-
-`L_sup = CE + DiceLoss`
+No unlabelled image may contribute a supervised target.
 
 ## SSL baseline (MT)
 
-EMA teacher with independent perturbations.
+EMA teacher + student using the same YOLO26 semantic architecture.
+
+Conceptually:
 
 `θ_teacher ← α θ_teacher + (1-α) θ_student`
 
-Student loss:
+Student objective:
 
-`L = L_sup + λ(t) L_consistency`
+`L = L_sup + λ(t) L_unsup`
 
-where consistency is applied only to unlabelled samples and can be confidence-gated.
+Unsupervised loss is confidence-gated and must ignore pixels marked `UNKNOWN`.
 
 ## VFM-assisted SSL (MT+MedSAM)
 
-Keep the specialist and Mean Teacher machinery identical to MT.
+Keep specialist architecture, train/val/test split, augmentations and optimization policy identical to MT.
 
-For an unlabelled slice:
+For an unlabelled image:
 
-1. teacher predicts probability map;
-2. high-confidence foreground prediction yields a candidate mask;
-3. derive a bounding box from the candidate foreground;
-4. frozen MedSAM predicts a mask from image + candidate box;
-5. use only regions where specialist teacher and MedSAM sufficiently agree, or use MedSAM mask as a refinement target with a confidence weight;
-6. rejected/ambiguous pixels remain **unknown**, not background.
+1. EMA teacher predicts nodule probability/mask;
+2. trusted candidate foreground yields a prompt (initially a bounding box);
+3. frozen MedSAM predicts a prompted mask;
+4. teacher/MedSAM agreement and confidence determine trusted pseudo-label pixels;
+5. rejected/disputed pixels remain `UNKNOWN`, never forced to background;
+6. student learns from the trusted pseudo-label target.
 
-This isolates the contribution of the foundation-model prior without changing the specialist architecture.
+The first implementation should remain one-way:
 
-## Metrics
+`teacher → prompt → MedSAM refinement → student`
+
+Bidirectional cross-prompting is a later ablation, not part of v1.
+
+## Evaluation
+
+### Segmentation
 
 Primary:
 
-- Dice per RV / myocardium / LV;
-- macro Dice;
-- HD95 macro.
+- nodule Dice on trusted reference pixels;
+- IoU/Jaccard;
+- patient-level or lesion-level aggregation with confidence intervals.
 
-Secondary:
+Secondary where defined:
 
-- ASD;
-- pseudo-label acceptance coverage;
-- pseudo-label precision on validation labels;
-- calibration / confidence histograms;
-- wall-clock and GPU memory.
+- HD95;
+- predicted volume / reference volume error.
+
+### Lesion-aware detection
+
+Because pulmonary nodules are sparse, a segmentation model should also be evaluated after connected-component extraction:
+
+- lesion sensitivity;
+- false positives per scan;
+- FROC-style operating points in a later stage.
+
+Do not use pixel accuracy as a primary metric because background dominates.
+
+### Pseudo-label diagnostics
+
+On validation labels only:
+
+- teacher pseudo-label precision/recall/Dice;
+- MedSAM-refined pseudo-label precision/recall/Dice;
+- accepted-pixel coverage;
+- teacher↔MedSAM agreement;
+- quality vs reader-agreement level.
 
 ## Statistics
 
@@ -95,27 +182,28 @@ At minimum:
 
 - 3 fixed random seeds;
 - paired comparison on identical test patients;
-- report mean ± SD across seeds;
-- bootstrap 95% CIs across test patients for key contrasts.
+- mean ± SD across seeds;
+- patient-level bootstrap 95% CIs for key contrasts.
+
+Increase seeds for 1% / 5% budgets if variance is high.
 
 Do not report only the best seed.
 
 ## Leakage controls
 
-- Patient-level splitting.
-- Test set frozen before hyperparameter selection.
-- If a foundation model may have seen ACDC during pretraining/fine-tuning, record that as a contamination risk.
-- Run a sensitivity analysis with a general-domain VFM later if contamination becomes central to the theory.
-- Never derive human GT from model output.
+- patient-level splitting;
+- test set frozen before model/hyperparameter selection;
+- label-budget subsets drawn only from train;
+- no test-derived preprocessing statistics;
+- no human GT generated from model output;
+- no ground-truth box used to prompt MedSAM on unlabelled/test data;
+- record potential foundation-model pretraining overlap as a contamination risk;
+- preserve specialist and VFM outputs separately for audit.
 
 ## Stop/go criteria
 
-### Stop after phase 1 if
+A null result is acceptable.
 
-`MT+MedSAM` does not improve over `MT` outside uncertainty across all four label budgets.
+If `MT+MedSAM` does not improve pseudo-label quality or downstream segmentation beyond uncertainty, do not add architectural complexity merely to force a gain.
 
-That is already a useful result.
-
-### Continue if
-
-The gain is concentrated in 1–5% labels or if pseudo-label quality improves even when final Dice does not. Then investigate confidence calibration, uncertainty gating, active learning or incomplete/partial labels.
+Continue method development if VFM guidance improves pseudo-label quality, low-label performance, calibration/coverage, or performance specifically in high-disagreement annotation regions.

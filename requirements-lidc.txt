@@ -1,0 +1,5 @@
+# Optional dependencies used only for LIDC-IDRI dataset preparation/validation.
+# Keep pylidc isolated from the training runtime because it is an older research package.
+pylidc==0.2.3
+pydicom>=2.4,<3.0
+Pillow>=10.0

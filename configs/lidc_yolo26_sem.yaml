@@ -1,0 +1,18 @@
+# LIDC-IDRI semantic segmentation layout for Ultralytics YOLO26-sem.
+# The converter writes 2.5D RGB PNGs (z-1, z, z+1) and single-channel masks.
+#
+# Mask values:
+#   0   = background
+#   1   = trusted pulmonary nodule
+#   255 = disputed / insufficient annotation evidence (ignored by Ultralytics)
+#
+# Set `path` to the generated dataset root.
+path: data/lidc_yolo26
+train: images/train
+val: images/val
+test: images/test
+masks_dir: masks
+
+names:
+  0: background
+  1: pulmonary_nodule

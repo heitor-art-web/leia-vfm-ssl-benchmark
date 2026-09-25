@@ -1,0 +1,8 @@
+# Extra runtime used by the reference-compatible MedSAM wrapper.
+# scikit-image 0.25.2 still supports Python 3.10, matching the project's minimum.
+scikit-image==0.25.2
+
+# MedSAM itself is intentionally not installed implicitly from this file.
+# Use the official bowang-lab/MedSAM source at revision:
+# d71e8a1a99ad751840a22a7fa3ecfb4166fb1488
+# and expose its `segment_anything` package in the environment/PYTHONPATH.
