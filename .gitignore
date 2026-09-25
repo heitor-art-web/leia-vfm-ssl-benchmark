@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+.env
+checkpoints/
+data/
+runs/
+wandb/
+results/raw/
+*.nii
+*.nii.gz

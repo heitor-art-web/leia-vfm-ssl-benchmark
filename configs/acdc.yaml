@@ -1,0 +1,45 @@
+project: leia-vfm-ssl-benchmark
+seed: 1337
+
+dataset:
+  name: ACDC
+  root: data/ACDC
+  classes: [background, rv, myocardium, lv]
+  image_size: [256, 256]
+  split_unit: patient
+
+benchmark:
+  label_fractions: [0.01, 0.05, 0.10, 0.25]
+  seeds: [1337, 2026, 31415]
+  conditions: [SUP, MT, MT_MEDSAM]
+  full_supervision_ceiling: true
+
+model:
+  specialist: unet2d
+  in_channels: 1
+  num_classes: 4
+
+ssl:
+  method: mean_teacher
+  ema_decay: 0.99
+  consistency_weight: 1.0
+  pseudo_threshold: 0.90
+  rampup_epochs: 20
+
+foundation:
+  model: MedSAM
+  frozen: true
+  checkpoint: checkpoints/medsam_vit_b.pth
+  agreement_only: true
+  min_component_pixels: 64
+
+training:
+  epochs: 150
+  batch_size: 8
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  optimizer: adamw
+
+metrics:
+  primary: [dice_macro, dice_rv, dice_myo, dice_lv, hd95_macro]
+  secondary: [asd_macro]
