@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Iterable, Mapping
 
+import numpy as np
+
 from leia_benchmark.data.lidc_validation import LIDCScanSummary
 
 
@@ -42,6 +44,39 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
     if normalized in {"0", "false", "no", "n"}:
         return False
     raise ValueError(f"Cannot parse boolean value: {value!r}")
+
+
+def semantic_target_from_default_and_annotation_count(
+    default_mask: np.ndarray,
+    annotation_count: np.ndarray,
+) -> np.ndarray:
+    """Build a 0/1/255 target from MedOtter default and count masks.
+
+    1   = default reference foreground (>=3 annotations and 50% consensus)
+    255 = some contour evidence exists but the voxel is outside that trusted
+          default reference
+    0   = no volumetric contour evidence at the voxel
+
+    This is intentionally conservative: evidence excluded from the default
+    reference is UNKNOWN, not forced to background.
+    """
+    mask = np.asarray(default_mask)
+    count = np.asarray(annotation_count)
+    if mask.shape != count.shape:
+        raise ValueError(
+            f"default_mask and annotation_count shapes differ: {mask.shape} vs {count.shape}"
+        )
+    if mask.ndim != 3:
+        raise ValueError("default_mask and annotation_count must be 3D")
+    if np.any(count < 0):
+        raise ValueError("annotation_count cannot contain negative values")
+
+    trusted = mask > 0
+    evidence = count > 0
+    target = np.zeros(mask.shape, dtype=np.uint8)
+    target[evidence & ~trusted] = 255
+    target[trusted] = 1
+    return target
 
 
 def medotter_case_map(scan_rows: Iterable[Mapping[str, str]]) -> dict[tuple[str, str], str]:
