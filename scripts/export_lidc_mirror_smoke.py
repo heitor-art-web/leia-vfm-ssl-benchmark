@@ -65,6 +65,15 @@ def _negative_indices(target: np.ndarray, count: int) -> list[int]:
     return sorted({int(empty[int(round(pos))]) for pos in positions})
 
 
+def _write_manifest(path: Path, rows: list[dict[str, object]]) -> None:
+    if not rows:
+        raise RuntimeError(f"refusing to write empty manifest: {path}")
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def main() -> None:
     args = parse_args()
     if args.window_high <= args.window_low:
@@ -83,7 +92,10 @@ def main() -> None:
     val_patients = set(args.val_patient)
     if not val_patients:
         # Deterministic fallback only for local convenience. CI passes explicit IDs.
-        val_patients = {row["patient_id"] for row in sorted(cohort, key=lambda r: r["patient_id"])[-2:]}
+        val_patients = {
+            row["patient_id"]
+            for row in sorted(cohort, key=lambda r: r["patient_id"])[-2:]
+        }
 
     known_patients = {row["patient_id"] for row in cohort}
     unknown_val = val_patients - known_patients
@@ -132,7 +144,9 @@ def main() -> None:
             mask = target[:, :, z].astype(np.uint8, copy=False)
             unique = set(int(v) for v in np.unique(mask))
             if not unique.issubset({0, 1, 255}):
-                raise RuntimeError(f"unexpected mask values for {case_id} z={z}: {sorted(unique)}")
+                raise RuntimeError(
+                    f"unexpected mask values for {case_id} z={z}: {sorted(unique)}"
+                )
 
             image_path = args.output / "images" / split / f"{stem}.png"
             mask_path = args.output / "masks" / split / f"{stem}.png"
@@ -155,18 +169,25 @@ def main() -> None:
         raise RuntimeError("smoke export contains no training images")
     if not any(row["split"] == "val" for row in manifest):
         raise RuntimeError("smoke export contains no validation images")
-    if not any(int(row["trusted_pixels"]) > 0 for row in manifest if row["split"] == "train"):
+    if not any(
+        int(row["trusted_pixels"]) > 0
+        for row in manifest
+        if row["split"] == "train"
+    ):
         raise RuntimeError("smoke training split contains no trusted foreground")
-    if not any(int(row["trusted_pixels"]) > 0 for row in manifest if row["split"] == "val"):
+    if not any(
+        int(row["trusted_pixels"]) > 0
+        for row in manifest
+        if row["split"] == "val"
+    ):
         raise RuntimeError("smoke validation split contains no trusted foreground")
     if not any(int(row["unknown_pixels"]) > 0 for row in manifest):
         raise RuntimeError("smoke export does not exercise ignore label 255")
 
-    manifest_path = args.output / "manifest.csv"
-    with manifest_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(manifest[0].keys()))
-        writer.writeheader()
-        writer.writerows(manifest)
+    _write_manifest(args.output / "manifest.csv", manifest)
+    for split in ("train", "val"):
+        split_rows = [row for row in manifest if row["split"] == split]
+        _write_manifest(args.output / f"manifest_{split}.csv", split_rows)
 
     dataset = {
         "path": str(args.output.resolve()),
@@ -176,7 +197,9 @@ def main() -> None:
         "names": {0: "background", 1: "pulmonary_nodule_ge_3mm"},
     }
     dataset_path = args.output / "dataset.yaml"
-    dataset_path.write_text(yaml.safe_dump(dataset, sort_keys=False), encoding="utf-8")
+    dataset_path.write_text(
+        yaml.safe_dump(dataset, sort_keys=False), encoding="utf-8"
+    )
 
     train_n = sum(row["split"] == "train" for row in manifest)
     val_n = sum(row["split"] == "val" for row in manifest)
