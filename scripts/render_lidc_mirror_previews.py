@@ -19,6 +19,10 @@ from leia_benchmark.data.lidc_validation import (
     choose_max_positive_slice,
 )
 
+TRUSTED_RGB = np.array([30.0, 220.0, 70.0], dtype=np.float32)
+UNKNOWN_RGB = np.array([255.0, 0.0, 255.0], dtype=np.float32)
+OVERLAY_ALPHA = 0.58
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -36,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _load_aligned(path: Path) -> nib.Nifti1Image:
+def _load(path: Path) -> nib.Nifti1Image:
     if not path.exists():
         raise FileNotFoundError(path)
     return nib.load(str(path))
@@ -44,9 +48,7 @@ def _load_aligned(path: Path) -> nib.Nifti1Image:
 
 def _verify_alignment(reference: nib.Nifti1Image, other: nib.Nifti1Image, name: str) -> None:
     if reference.shape != other.shape:
-        raise RuntimeError(
-            f"NIfTI shape mismatch for {name}: {reference.shape} vs {other.shape}"
-        )
+        raise RuntimeError(f"NIfTI shape mismatch for {name}: {reference.shape} vs {other.shape}")
     if not np.allclose(reference.affine, other.affine, atol=1e-4, rtol=0):
         raise RuntimeError(f"NIfTI affine mismatch for {name}")
 
@@ -54,15 +56,12 @@ def _verify_alignment(reference: nib.Nifti1Image, other: nib.Nifti1Image, name: 
 def _overlay(gray: np.ndarray, target: np.ndarray) -> np.ndarray:
     base = np.repeat(gray[:, :, None], 3, axis=2).astype(np.float32)
     out = base.copy()
-    alpha = 0.45
     trusted = target == 1
     unknown = target == 255
     if np.any(trusted):
-        green = np.array([30.0, 220.0, 70.0], dtype=np.float32)
-        out[trusted] = (1.0 - alpha) * out[trusted] + alpha * green
+        out[trusted] = (1.0 - OVERLAY_ALPHA) * out[trusted] + OVERLAY_ALPHA * TRUSTED_RGB
     if np.any(unknown):
-        amber = np.array([255.0, 170.0, 20.0], dtype=np.float32)
-        out[unknown] = (1.0 - alpha) * out[unknown] + alpha * amber
+        out[unknown] = (1.0 - OVERLAY_ALPHA) * out[unknown] + OVERLAY_ALPHA * UNKNOWN_RGB
     return np.clip(np.rint(out), 0, 255).astype(np.uint8)
 
 
@@ -79,11 +78,10 @@ def _crop_bounds(target: np.ndarray, margin: int) -> tuple[slice, slice]:
         return slice(0, target.shape[0]), slice(0, target.shape[1])
     r0, c0 = evidence.min(axis=0)
     r1, c1 = evidence.max(axis=0)
-    r0 = max(0, int(r0) - margin)
-    c0 = max(0, int(c0) - margin)
-    r1 = min(target.shape[0], int(r1) + margin + 1)
-    c1 = min(target.shape[1], int(c1) + margin + 1)
-    return slice(r0, r1), slice(c0, c1)
+    return (
+        slice(max(0, int(r0) - margin), min(target.shape[0], int(r1) + margin + 1)),
+        slice(max(0, int(c0) - margin), min(target.shape[1], int(c1) + margin + 1)),
+    )
 
 
 def _panel(image: Image.Image, title: str) -> Image.Image:
@@ -112,13 +110,10 @@ def _contact_sheet(
         mask_title = "Semantic mask: no volumetric evidence"
 
     panels = [
-        _panel(Image.fromarray(ct, mode="L"), "CT: lung window"),
-        _panel(Image.fromarray(_mask_preview(target), mode="L"), mask_title),
-        _panel(
-            Image.fromarray(overlay, mode="RGB"),
-            "Overlay: green=trusted, amber=UNKNOWN",
-        ),
-        _panel(Image.fromarray(crop, mode="RGB"), "Evidence crop"),
+        _panel(Image.fromarray(ct), "CT: lung window"),
+        _panel(Image.fromarray(_mask_preview(target)), mask_title),
+        _panel(Image.fromarray(overlay), "Overlay: green=trusted, magenta=UNKNOWN"),
+        _panel(Image.fromarray(crop), "Evidence crop"),
     ]
     width = max(panel.width for panel in panels)
     height = max(panel.height for panel in panels)
@@ -129,7 +124,7 @@ def _contact_sheet(
 
 
 def _write_html(rows: list[dict[str, object]], output: Path) -> None:
-    cards = []
+    cards: list[str] = []
     for row in rows:
         role = html.escape(str(row["role"]))
         case_id = html.escape(str(row["case_id"]))
@@ -147,7 +142,7 @@ def _write_html(rows: list[dict[str, object]], output: Path) -> None:
 <html><head><meta charset='utf-8'><title>LIDC visual validation</title>
 <style>body{font-family:system-ui;max-width:1200px;margin:2rem auto;padding:0 1rem}section{margin:2rem 0;border-bottom:1px solid #ddd;padding-bottom:2rem}</style>
 </head><body><h1>LIDC-IDRI seven-case visual validation</h1>
-<p>Green denotes trusted default-reference foreground. Amber denotes contour evidence that is deliberately UNKNOWN/ignored rather than forced to background. For high-suspicion trusted cases, the overlay isolates only the exact metadata-selected nodule instance. The one-reader and two-reader cases are restricted to scans with exactly one volumetric nodule and no default-reference nodule, so scan-wide annotation-count evidence is unambiguous for this QC purpose.</p>
+<p>Green denotes trusted foreground. Magenta denotes contour evidence that is deliberately UNKNOWN/ignored rather than forced to background. Trusted high-suspicion previews isolate the exact metadata-selected nodule instance. The one-reader and two-reader ambiguity scans each contain exactly one volumetric nodule and no default-reference foreground.</p>
 <p>LIDC malignancy is a subjective radiologist likelihood score, not pathology-confirmed cancer.</p>
 """ + "\n".join(cards) + "\n</body></html>"
     (output / "index.html").write_text(page, encoding="utf-8")
@@ -162,9 +157,7 @@ def main() -> None:
 
     cohort_path = args.root / "cohort.csv"
     if not cohort_path.exists():
-        raise SystemExit(
-            f"Missing {cohort_path}. Run scripts/bootstrap_lidc_hf.py first."
-        )
+        raise SystemExit(f"Missing {cohort_path}. Run scripts/bootstrap_lidc_hf.py first.")
     with cohort_path.open(newline="", encoding="utf-8") as handle:
         cohort = list(csv.DictReader(handle))
     if not cohort:
@@ -176,14 +169,10 @@ def main() -> None:
 
     for row in cohort:
         case_id = row["case_id"]
-        image_nii = _load_aligned(args.root / "images" / f"{case_id}.nii.gz")
-        mask_nii = _load_aligned(args.root / "masks" / f"{case_id}.nii.gz")
-        instance_nii = _load_aligned(
-            args.root / "masks_instance" / f"{case_id}.nii.gz"
-        )
-        count_nii = _load_aligned(
-            args.root / "masks_annotation_count" / f"{case_id}.nii.gz"
-        )
+        image_nii = _load(args.root / "images" / f"{case_id}.nii.gz")
+        mask_nii = _load(args.root / "masks" / f"{case_id}.nii.gz")
+        instance_nii = _load(args.root / "masks_instance" / f"{case_id}.nii.gz")
+        count_nii = _load(args.root / "masks_annotation_count" / f"{case_id}.nii.gz")
         _verify_alignment(image_nii, mask_nii, f"{case_id} default mask")
         _verify_alignment(image_nii, instance_nii, f"{case_id} instance mask")
         _verify_alignment(image_nii, count_nii, f"{case_id} annotation-count mask")
@@ -196,9 +185,8 @@ def main() -> None:
             raise RuntimeError(f"{case_id} CT is not 3D: shape={volume_hu.shape}")
 
         role = row["role"]
-        selected_id_text = row.get("selected_nodule_index", "").strip()
-        selected_id = int(selected_id_text) if selected_id_text else None
-        target: np.ndarray
+        selected_text = row.get("selected_nodule_index", "").strip()
+        selected_id = int(selected_text) if selected_text else None
         selected_instance = None
 
         if role == "high_suspicion":
@@ -206,40 +194,27 @@ def main() -> None:
                 raise RuntimeError(f"{case_id} high_suspicion row lacks selected_nodule_index")
             selected_instance = selected_instance_target(instance_mask, selected_id)
             if not np.any(annotation_count[selected_instance == 1] > 0):
-                raise RuntimeError(
-                    f"{case_id} selected nodule id {selected_id} has no annotation-count evidence"
-                )
+                raise RuntimeError(f"{case_id} selected nodule id {selected_id} has no annotation-count evidence")
             target = selected_instance.astype(np.uint8)
             z = choose_max_positive_slice(target)
         elif role in {"ambiguous_1_reader", "ambiguous_2_reader"}:
             expected_readers = 1 if role == "ambiguous_1_reader" else 2
             if int(row.get("n_annotations", "0")) != expected_readers:
-                raise RuntimeError(
-                    f"{case_id} {role} metadata does not match expected annotation count"
-                )
+                raise RuntimeError(f"{case_id} {role} metadata does not match expected annotation count")
             if np.any(default_mask > 0):
-                raise RuntimeError(
-                    f"{case_id} {role} unexpectedly contains trusted default foreground"
-                )
-            target = semantic_target_from_default_and_annotation_count(
-                default_mask, annotation_count
-            )
+                raise RuntimeError(f"{case_id} {role} unexpectedly contains trusted default foreground")
+            target = semantic_target_from_default_and_annotation_count(default_mask, annotation_count)
             if np.any(target == 1) or not np.any(target == 255):
-                raise RuntimeError(
-                    f"{case_id} {role} does not produce a pure UNKNOWN foreground example"
-                )
+                raise RuntimeError(f"{case_id} {role} does not produce a pure UNKNOWN foreground example")
             if int(np.max(annotation_count)) > expected_readers:
-                raise RuntimeError(
-                    f"{case_id} {role} annotation-count volume exceeds metadata reader count"
-                )
+                raise RuntimeError(f"{case_id} {role} annotation-count volume exceeds metadata reader count")
             z = choose_max_positive_slice(target, positive_label=255)
         else:
             target = np.zeros(volume_hu.shape, dtype=np.uint8)
-            if role == "control_no_volumetric_nodule":
-                if np.any(instance_mask > 0) or np.any(default_mask > 0) or np.any(annotation_count > 0):
-                    raise RuntimeError(
-                        f"{case_id} was selected as no-contour control but contour evidence exists"
-                    )
+            if role == "control_no_volumetric_nodule" and (
+                np.any(instance_mask > 0) or np.any(default_mask > 0) or np.any(annotation_count > 0)
+            ):
+                raise RuntimeError(f"{case_id} was selected as no-contour control but contour evidence exists")
             z = choose_lung_like_slice(volume_hu)
 
         ct = normalize_hu(volume_hu[:, :, z], low=args.window_low, high=args.window_high)
@@ -252,25 +227,18 @@ def main() -> None:
         default_overlap_fraction: float | str = ""
         if selected_instance is not None and selected_id is not None:
             other_nodule_pixels = int(
-                np.count_nonzero(
-                    (instance_mask[:, :, z] > 0)
-                    & (instance_mask[:, :, z] != selected_id)
-                )
+                np.count_nonzero((instance_mask[:, :, z] > 0) & (instance_mask[:, :, z] != selected_id))
             )
             selected_voxels = int(np.count_nonzero(selected_instance))
-            overlap_voxels = int(
-                np.count_nonzero((selected_instance == 1) & (default_mask > 0))
-            )
-            default_overlap_fraction = (
-                float(overlap_voxels / selected_voxels) if selected_voxels else 0.0
-            )
+            overlap_voxels = int(np.count_nonzero((selected_instance == 1) & (default_mask > 0)))
+            default_overlap_fraction = float(overlap_voxels / selected_voxels) if selected_voxels else 0.0
 
         case_dir = output / case_id
         case_dir.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(ct, mode="L").save(case_dir / "ct.png")
-        Image.fromarray(_mask_preview(target_slice), mode="L").save(case_dir / "mask.png")
-        Image.fromarray(overlay, mode="RGB").save(case_dir / "overlay.png")
-        Image.fromarray(crop, mode="RGB").save(case_dir / "crop.png")
+        Image.fromarray(ct).save(case_dir / "ct.png")
+        Image.fromarray(_mask_preview(target_slice)).save(case_dir / "mask.png")
+        Image.fromarray(overlay).save(case_dir / "overlay.png")
+        Image.fromarray(crop).save(case_dir / "crop.png")
         _contact_sheet(
             ct,
             target_slice,
