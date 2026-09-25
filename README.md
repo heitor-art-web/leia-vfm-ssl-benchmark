@@ -56,9 +56,9 @@ The phase-1 semantic target is deliberately conservative:
 
 Ultralytics semantic segmentation ignores mask value `255` during loss/metric computation, allowing disagreement to remain unresolved instead of being converted to a negative label.
 
-## 2.5D input
+## 2.5D specialist input vs MedSAM input
 
-YOLO26-sem is a 2D semantic model. The initial CT representation uses:
+YOLO26-sem receives adjacent CT slices:
 
 ```text
 R = slice z-1
@@ -67,6 +67,8 @@ B = slice z+1
 ```
 
 Edge slices replicate the nearest available slice.
+
+MedSAM does **not** receive that 2.5D stack as pseudo-colour RGB. For VFM refinement, the central CT slice `z` is replicated to three channels before reference-compatible MedSAM preprocessing. This keeps the specialist's extra through-plane context without silently changing MedSAM's 2D image semantics.
 
 The CT window is configurable and must be frozen before benchmark runs.
 
@@ -108,11 +110,12 @@ python scripts/plan_lidc_splits.py \
   --output-dir data/splits/lidc_v1
 ```
 
-Then generate deterministic nested 1/5/10/25% label budgets from the frozen train pool:
+Generate deterministic, nested and stratified 1/5/10/25% label budgets from the frozen train pool:
 
 ```bash
 python scripts/make_lidc_label_budgets.py \
   data/splits/lidc_v1/train_patients.txt \
+  data/lidc_annotation_audit_patients.csv \
   --output-dir data/splits/lidc_v1/budgets
 ```
 
@@ -134,6 +137,27 @@ python scripts/validate_lidc_yolo26.py \
   --splits train
 ```
 
+For a real low-label supervised run, do **not** point YOLO at the whole `images/train` directory. Materialize a run-specific view from the declared labelled patient list:
+
+```bash
+python scripts/make_lidc_dataset_view.py \
+  data/lidc_yolo26 \
+  data/splits/lidc_v1/budgets/seed_1337/5pct_labelled.txt \
+  --output-dir data/views/sup_5pct_seed1337
+```
+
+The generated `supervised.yaml` exposes only labelled training images, while preserving fixed validation/test lists and a separate unlabelled image list for the later Mean Teacher condition.
+
+The supervised runner deliberately refuses directory-wide train input:
+
+```bash
+python scripts/train_yolo26_sup.py \
+  --data data/views/sup_5pct_seed1337/supervised.yaml \
+  --model-scale benchmark \
+  --seed 1337 \
+  --dry-run
+```
+
 See `docs/06_lidc_pipeline.md`.
 
 ## Current status
@@ -148,14 +172,15 @@ Implemented on the LIDC pipeline branch:
 - reader-vote target construction;
 - explicit `UNKNOWN=255`;
 - positive-over-unknown merge precedence;
+- UNKNOWN-safe evaluation metrics;
 - multi-scan-safe sample identifiers;
 - patient-level annotation audit and split planning;
-- nested annotation-budget generation;
-- YOLO26 semantic dataset config;
-- export manifest;
-- image/mask validator;
-- patient-leakage validator;
+- nested stratified annotation-budget generation;
+- run-specific low-label dataset views;
+- YOLO26 semantic dataset config and supervised runner;
+- image/mask validator and patient-leakage checks;
 - reference-compatible MedSAM prompt/refinement wrapper;
+- explicit central-slice MedSAM input contract;
 - buffer-safe Mean Teacher EMA implementation;
 - unit-test CI.
 
@@ -163,15 +188,16 @@ No performance claims are made yet.
 
 ## Reproducibility rules
 
-- Split at **patient level**, never slice level.
+- Split at **patient level**, never slice or series level.
 - Freeze test patients before hyperparameter selection.
 - Freeze train/val/test before selecting 1/5/10/25% labelled subsets.
+- Low-label supervised runs may only consume their generated labelled-image list.
 - Do not use model predictions as human ground truth.
 - `unlabelled` means **unknown label**, not background / negative.
 - Preserve radiologist disagreement as an auditable state.
 - Use the same frozen splits for all methods.
 - Report all seeds; do not select only the best run.
-- Tune pseudo-label thresholds on validation only.
+- Tune pseudo-label thresholds and unresolved class weighting on train/validation only.
 - Keep specialist and VFM predictions separately auditable.
 - Do not claim clinical diagnosis or malignancy prediction from a segmentation-only phase.
 
