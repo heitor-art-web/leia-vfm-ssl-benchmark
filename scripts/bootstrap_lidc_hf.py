@@ -24,7 +24,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--metadata-only",
         action="store_true",
-        help="Select the cohort and write its manifest without downloading NIfTI volumes.",
+        help=(
+            "Select the cohort and verify all required NIfTI paths exist, but do not "
+            "download the large image/mask volumes."
+        ),
     )
     return parser.parse_args()
 
@@ -32,6 +35,14 @@ def parse_args() -> argparse.Namespace:
 def _read_csv(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
+
+
+def _required_case_files(case_id: str) -> tuple[str, str, str]:
+    return (
+        f"images/{case_id}.nii.gz",
+        f"masks/{case_id}.nii.gz",
+        f"masks_annotation_count/{case_id}.nii.gz",
+    )
 
 
 def main() -> None:
@@ -95,6 +106,31 @@ def main() -> None:
             }
         )
 
+    if len({str(row["patient_id"]) for row in cohort_rows}) != len(cohort_rows):
+        raise RuntimeError("visual-QC cohort unexpectedly contains duplicate patients")
+
+    # Verify all selected image/mask paths at the exact pinned revision before
+    # writing a reproducible manifest or starting any large downloads.
+    missing_files: list[str] = []
+    required_files: list[str] = []
+    for row in cohort_rows:
+        case_id = str(row["case_id"])
+        for filename in _required_case_files(case_id):
+            required_files.append(filename)
+            if not api.file_exists(
+                repo_id=args.repo_id,
+                filename=filename,
+                repo_type="dataset",
+                revision=resolved_revision,
+            ):
+                missing_files.append(filename)
+    if missing_files:
+        formatted = "\n  - ".join(missing_files)
+        raise RuntimeError(
+            "Selected cohort references missing mirror files at the pinned revision:\n  - "
+            + formatted
+        )
+
     cohort_path = args.output / "cohort.csv"
     with cohort_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(cohort_rows[0].keys()))
@@ -106,6 +142,14 @@ def main() -> None:
         "requested_revision": args.revision,
         "resolved_revision": resolved_revision,
         "cohort_manifest": cohort_path.name,
+        "required_files_verified": required_files,
+        "selection": {
+            "control": "one patient with no volumetrically annotated >=3 mm nodule when available",
+            "high_suspicion": (
+                "four patient-unique scans with >=3 nodule annotations and median "
+                "radiologist malignancy score >=4, spread across the observed diameter range"
+            ),
+        },
         "note": (
             "LIDC malignancy is a subjective radiologist likelihood rating, not a "
             "pathology-confirmed cancer label. This mirror is a development convenience; "
@@ -117,25 +161,23 @@ def main() -> None:
     )
 
     if args.metadata_only:
-        print(f"Selected {len(cohort_rows)} cases; metadata written to {cohort_path.resolve()}")
+        print(
+            f"Selected {len(cohort_rows)} patient-unique cases and verified "
+            f"{len(required_files)} required NIfTI paths at revision {resolved_revision}."
+        )
+        print(f"Metadata written to {cohort_path.resolve()}")
         return
 
     downloaded_files = 0
-    for row in cohort_rows:
-        case_id = str(row["case_id"])
-        for filename in (
-            f"images/{case_id}.nii.gz",
-            f"masks/{case_id}.nii.gz",
-            f"masks_annotation_count/{case_id}.nii.gz",
-        ):
-            hf_hub_download(
-                repo_id=args.repo_id,
-                filename=filename,
-                repo_type="dataset",
-                revision=resolved_revision,
-                local_dir=args.output,
-            )
-            downloaded_files += 1
+    for filename in required_files:
+        hf_hub_download(
+            repo_id=args.repo_id,
+            filename=filename,
+            repo_type="dataset",
+            revision=resolved_revision,
+            local_dir=args.output,
+        )
+        downloaded_files += 1
 
     print(
         f"Selected {len(cohort_rows)} cases and downloaded {downloaded_files} NIfTI files "
