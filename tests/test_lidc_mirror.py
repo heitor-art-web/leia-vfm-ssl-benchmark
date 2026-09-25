@@ -4,6 +4,7 @@ import pytest
 from leia_benchmark.data.lidc_mirror import (
     medotter_case_map,
     medotter_scan_summaries,
+    select_ambiguous_validation_cases,
     selected_instance_target,
     semantic_target_from_default_and_annotation_count,
 )
@@ -73,6 +74,70 @@ def test_selected_instance_target_rejects_missing_id():
 def test_selected_instance_target_rejects_zero_id():
     with pytest.raises(ValueError, match=">= 1"):
         selected_instance_target(np.zeros((2, 2, 2), dtype=np.uint16), 0)
+
+
+def _ambiguous_scan(patient: str, *, readers: int, diameter: float, default: int = 0):
+    case_id = f"{patient}_case"
+    return (
+        {
+            "case_id": case_id,
+            "patient_id": patient,
+            "series_uid": f"uid-{patient}",
+            "n_nodules": "1",
+            "n_nodules_default": str(default),
+        },
+        {
+            "case_id": case_id,
+            "nodule_id": "1",
+            "n_annotations": str(readers),
+            "in_default_gt": "True" if default else "False",
+            "malignancy_score": "3",
+            "diameter_mm": str(diameter),
+        },
+    )
+
+
+def test_ambiguous_selector_picks_middle_size_clean_cases():
+    pairs = [
+        _ambiguous_scan("A1", readers=1, diameter=5),
+        _ambiguous_scan("A2", readers=1, diameter=10),
+        _ambiguous_scan("A3", readers=1, diameter=20),
+        _ambiguous_scan("B1", readers=2, diameter=6),
+        _ambiguous_scan("B2", readers=2, diameter=12),
+        _ambiguous_scan("B3", readers=2, diameter=24),
+    ]
+    scans = [scan for scan, _ in pairs]
+    nodules = [nodule for _, nodule in pairs]
+
+    selected = select_ambiguous_validation_cases(scans, nodules)
+
+    assert [item.role for item in selected] == ["ambiguous_1_reader", "ambiguous_2_reader"]
+    assert [item.patient_id for item in selected] == ["A2", "B2"]
+    assert [item.annotation_count for item in selected] == [1, 2]
+
+
+def test_ambiguous_selector_excludes_existing_qc_patient():
+    pairs = [
+        _ambiguous_scan("A1", readers=1, diameter=5),
+        _ambiguous_scan("A2", readers=1, diameter=10),
+        _ambiguous_scan("B1", readers=2, diameter=6),
+        _ambiguous_scan("B2", readers=2, diameter=12),
+    ]
+    selected = select_ambiguous_validation_cases(
+        [scan for scan, _ in pairs],
+        [nodule for _, nodule in pairs],
+        exclude_patient_ids={"A1", "B1"},
+    )
+    assert {item.patient_id for item in selected} == {"A2", "B2"}
+
+
+def test_ambiguous_selector_rejects_default_or_multi_nodule_scan():
+    one_scan, one_nodule = _ambiguous_scan("ONE", readers=1, diameter=10, default=1)
+    two_scan, two_nodule = _ambiguous_scan("TWO", readers=2, diameter=10)
+    two_scan["n_nodules"] = "2"
+
+    with pytest.raises(ValueError, match="1-reader"):
+        select_ambiguous_validation_cases([one_scan, two_scan], [one_nodule, two_nodule])
 
 
 def test_medotter_summaries_and_selection_with_live_field_names():
