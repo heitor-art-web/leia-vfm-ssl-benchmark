@@ -47,17 +47,42 @@ A standalone MedSAM baseline is desirable but not yet frozen because its prompt 
 
 Possible future prompt sources include a frozen external detector or a specialist prediction, but those choices introduce additional variables and must be documented explicitly.
 
-## Label budgets and splits
+## Frozen patient split policy
 
-- Split train / validation / test by patient.
-- Freeze validation and test patients before any hyperparameter tuning.
-- Apply 1%, 5%, 10% and 25% only inside the frozen training pool.
-- The remaining training patients form the unlabelled pool for MT and MT+MedSAM.
-- Use exactly the same labelled patient IDs across methods for a given fraction and seed.
+The benchmark unit is the **patient**, never an individual CT slice.
+
+The v1 held-out split is fixed before model training as:
+
+```text
+70% train
+15% validation
+15% test
+split seed = 20260925
+```
+
+The train/validation/test assignment is stratified only by whether the patient has any foreground in the mirror's documented default nodule reference. This prevents a pathological held-out prevalence imbalance while keeping every scan from a patient in exactly one split.
+
+Validation and test patients are frozen before hyperparameter tuning. The exact patient manifests are generated from the pinned MedOtter metadata revision and versioned with the benchmark.
+
+## Label budgets inside the training pool
+
+Label fractions `{1%, 5%, 10%, 25%}` are applied **only inside the frozen training pool**.
+
+Within each seed, labelled patient subsets are generated from a deterministic target-blind ordering of the training patient IDs. The subset selector does **not** inspect nodule presence, malignancy score, mask size or any other target-derived property. This avoids making the low-label regimes artificially easier through label-aware patient selection.
+
+The subsets are nested within a seed:
+
+```text
+1% subset ⊂ 5% subset ⊂ 10% subset ⊂ 25% subset
+```
+
+The remaining training patients form the unlabelled pool for MT and MT+MedSAM. SUP sees only the labelled subset.
+
+For a given fraction and seed, SUP, MT and MT+MedSAM must use exactly the same labelled patient IDs.
 
 ## Seeds
 
-Initial benchmark seeds:
+Initial label-budget seeds:
 
 ```text
 1337
@@ -91,7 +116,19 @@ G = z
 B = z+1
 ```
 
-DICOM modality rescale is applied before a fixed CT window of `[-1000, 400] HU`.
+DICOM modality rescale is applied before a fixed CT window of `[-1000, 400] HU`. For the public NIfTI development mirror, image geometry and mask alignment are checked explicitly before rendering or export.
+
+## YOLO26-sem interface
+
+The specialist baseline uses Ultralytics YOLO26 semantic segmentation, initially `yolo26n-sem.pt`. The dataset representation is single-channel class-index PNG masks with:
+
+```text
+0   background
+1   pulmonary nodule
+255 ignore / unknown
+```
+
+The benchmark keeps semantic and instance segmentation conceptually separate: `YOLO26-sem` is used for the primary semantic task; instance masks are used only where exact nodule identity is required for QC.
 
 ## Fairness constraints
 
@@ -146,12 +183,18 @@ Do not start benchmark training until all are true:
 1. train / val / test patient sets are disjoint;
 2. exported image and mask dimensions match;
 3. masks contain only `{0, 1, 255}`;
-4. CT intensity rescale is verified on real DICOM examples;
-5. visual overlays are reviewed for several 4-reader, 3-reader, 2-reader and 1-reader nodules;
+4. CT intensity rescale is verified on real examples;
+5. visual overlays are reviewed for representative trusted and ambiguous annotations;
 6. empty CT slices are not silently removed from the official benchmark;
 7. all frozen patient lists and manifests are versioned;
 8. no ground-truth information enters the unlabelled prompt path.
 
+### Visual-QC status
+
+The first real-data gate has been accepted for five exact-instance cases: one no-volumetric-nodule control plus four radiologist high-suspicion nodules spanning approximately 7-45 mm. Exact instance isolation is used so an unrelated larger nodule in the same scan cannot replace the metadata-selected lesion in the preview.
+
+Before model training, the QC set still needs explicit examples of ambiguous 1-2-reader contour evidence to exercise the `255 = UNKNOWN` path visually.
+
 ## Current implementation boundary
 
-Phase 0 implements data conversion, consensus handling, validation and the supervised YOLO26-sem entry point. Mean Teacher and MedSAM co-teacher integration should only be implemented after a real LIDC export passes all dataset quality gates.
+Phase 0 now implements data conversion, consensus handling, real-data visual QC, deterministic patient-level split generation, nested label-budget manifests, validation and the supervised YOLO26-sem entry point. Mean Teacher and MedSAM co-teacher integration remains deferred until the remaining dataset quality gates are green.
