@@ -33,6 +33,13 @@ def _optional_int(value: str) -> int | None:
     return None if value == "" else int(value)
 
 
+def _annotation_ids(value: str) -> tuple[int, ...]:
+    value = value.strip()
+    if not value:
+        return ()
+    return tuple(sorted(int(part) for part in value.split(";") if part))
+
+
 def _load(path: Path) -> list[LIDCScanSummary]:
     with path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
@@ -47,6 +54,7 @@ def _load(path: Path) -> list[LIDCScanSummary]:
                 series_instance_uid=row["series_instance_uid"],
                 n_clusters=int(row["n_clusters"]),
                 best_cluster_index=_optional_int(row["best_cluster_index"]),
+                best_annotation_ids=_annotation_ids(row.get("best_annotation_ids", "")),
                 best_reader_count=int(row["best_reader_count"]),
                 best_malignancy_median=_optional_float(row["best_malignancy_median"]),
                 best_malignancy_mean=_optional_float(row["best_malignancy_mean"]),
@@ -71,6 +79,7 @@ def main() -> None:
         "patient_id",
         "series_instance_uid",
         "cluster_index",
+        "annotation_ids",
         "reader_count",
         "malignancy_median",
         "malignancy_mean",
@@ -91,6 +100,7 @@ def main() -> None:
                     "cluster_index": ""
                     if scan.best_cluster_index is None
                     else scan.best_cluster_index,
+                    "annotation_ids": ";".join(str(value) for value in scan.best_annotation_ids),
                     "reader_count": scan.best_reader_count,
                     "malignancy_median": ""
                     if scan.best_malignancy_median is None
