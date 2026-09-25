@@ -60,7 +60,7 @@ The v1 held-out split is fixed before model training as:
 split seed = 20260925
 ```
 
-The train/validation/test assignment is stratified only by whether the patient has any foreground in the mirror's documented default nodule reference. This prevents a pathological held-out prevalence imbalance while keeping every scan from a patient in exactly one split.
+The train/validation/test assignment is stratified only by whether the patient has any foreground in the mirror's documented default nodule reference. This stratification variable is used only to avoid a pathological held-out prevalence imbalance; it is not the final benchmark voxel target.
 
 Validation and test patients are frozen before hyperparameter tuning. The exact patient manifests are generated from the pinned MedOtter metadata revision and versioned with the benchmark.
 
@@ -94,17 +94,21 @@ At 1% and 5%, more seeds may be added because patient selection variance is expe
 
 ## Ground-truth policy
 
-The v1 target is restricted to LIDC-IDRI volumetric contours for nodules >= 3 mm.
+The v1 target is restricted to LIDC-IDRI volumetric contour annotations for nodules >= 3 mm.
 
-Reader votes are encoded as:
+The official voxel target is computed **directly from the voxelwise annotation-count volume**, not from the mirror's default consensus mask:
 
 ```text
-0   background for the current task
-1   trusted nodule (>= 3 of 4 possible reader votes)
-255 ambiguous / unknown (1-2 reader votes)
+0   no volumetric contour annotation covers the voxel
+1   trusted nodule: >= 3 contour annotations cover the voxel
+255 UNKNOWN / ignore: 1-2 contour annotations cover the voxel
 ```
 
-The consensus threshold is fixed before model comparison. Alternative thresholds are ablations, not tuning knobs chosen from test results.
+The public benchmark uses the term **annotation votes** rather than identified reader votes. The available mirror intentionally does not expose reader identity, while `masks_annotation_count` records how many individual contour annotations cover each voxel.
+
+The mirror's `masks/<case>.nii.gz` default reference is useful for metadata stratification and visual QC, but it is based on a different consensus construction and is **not** used as the official v1 benchmark voxel target. `masks_instance` is likewise restricted to exact-instance QC rather than benchmark target construction.
+
+The threshold `>=3 -> trusted` is fixed before model comparison. Alternative thresholds are ablations, not tuning knobs selected from test results.
 
 ## Input representation
 
@@ -116,7 +120,7 @@ G = z
 B = z+1
 ```
 
-DICOM modality rescale is applied before a fixed CT window of `[-1000, 400] HU`. For the public NIfTI development mirror, image geometry and mask alignment are checked explicitly before rendering or export.
+DICOM modality rescale is applied before a fixed CT window of `[-1000, 400] HU`. For the pinned public NIfTI mirror, CT is consumed in its documented HU representation and image/count-mask geometry is checked explicitly before export.
 
 ## YOLO26-sem interface
 
@@ -125,10 +129,12 @@ The specialist baseline uses Ultralytics YOLO26 semantic segmentation, initially
 ```text
 0   background
 1   pulmonary nodule
-255 ignore / unknown
+255 ignore / UNKNOWN
 ```
 
 The benchmark keeps semantic and instance segmentation conceptually separate: `YOLO26-sem` is used for the primary semantic task; instance masks are used only where exact nodule identity is required for QC.
+
+A real-data interface smoke test is part of the quality gate: it downloads actual LIDC CT volumes, creates 2.5D inputs, constructs `0/1/255` masks, validates patient isolation and runs one CPU epoch of `yolo26n-sem.pt`. That smoke test is a software/integration check only and its metrics must not be reported as scientific benchmark results.
 
 ## Fairness constraints
 
@@ -170,38 +176,49 @@ Secondary:
 - precision;
 - pseudo-label coverage;
 - pseudo-label agreement rate;
-- fraction of pixels kept as unknown;
+- fraction of pixels kept as UNKNOWN;
 - training time and inference time;
 - GPU memory use where available.
 
 Patient-level aggregation must be reported in addition to any slice-level summaries so scans with many slices do not dominate the benchmark.
 
-## Quality gates before training
+## Quality gates before benchmark training
 
 Do not start benchmark training until all are true:
 
 1. train / val / test patient sets are disjoint;
 2. exported image and mask dimensions match;
 3. masks contain only `{0, 1, 255}`;
-4. CT intensity rescale is verified on real examples;
+4. real CT intensity handling is verified;
 5. visual overlays are reviewed for representative trusted and ambiguous annotations;
 6. empty CT slices are not silently removed from the official benchmark;
 7. all frozen patient lists and manifests are versioned;
-8. no ground-truth information enters the unlabelled prompt path.
+8. no ground-truth information enters the unlabelled prompt path;
+9. official targets are generated from the frozen annotation-vote rule rather than the mirror default mask;
+10. the real-data YOLO26 semantic interface smoke test passes end to end.
 
 ### Visual-QC status
 
-The trusted-reference gate is accepted for five exact-instance cases: one no-volumetric-nodule control plus four radiologist high-suspicion nodules spanning approximately 7-45 mm. Exact instance isolation is used so an unrelated larger nodule in the same scan cannot replace the metadata-selected lesion in the preview.
+The trusted-reference gate was reviewed on five exact-instance examples: one no-volumetric-nodule control plus four radiologist high-suspicion nodules spanning approximately 7-45 mm. Exact instance isolation is used so an unrelated larger nodule in the same scan cannot replace the metadata-selected lesion in the preview.
 
-The QC cohort has now been expanded to seven patient-unique cases with two deterministic ambiguity examples:
+The QC cohort was expanded to seven patient-unique cases with deterministic ambiguity examples:
 
 ```text
-one-reader contour -> UNKNOWN / ignore
- two-reader contour -> UNKNOWN / ignore
+one-annotation contour -> UNKNOWN / ignore
+two-annotation contour -> UNKNOWN / ignore
 ```
 
-Each ambiguity scan contains exactly one volumetrically annotated nodule and zero default-reference nodules. The rendered slices therefore exercise the scan-wide annotation-count path without contamination by a second volumetric nodule. Automated geometry, metadata and target checks are green. The two new amber UNKNOWN overlays still require final visual confirmation before training starts.
+The visual convention is now:
+
+```text
+green   trusted foreground
+magenta UNKNOWN / ignore
+```
+
+The original LIDC XML-only annotations were independently matched by `SeriesInstanceUID` for all seven QC cases. The XML audit records raw per-reading-session evidence and deliberately does not reconstruct cross-reader nodule clusters heuristically.
 
 ## Current implementation boundary
 
-Phase 0 now implements data conversion, consensus handling, real-data visual QC, deterministic patient-level split generation, frozen exact patient manifests, nested label-budget manifests, validation and the supervised YOLO26-sem entry point. Mean Teacher and MedSAM co-teacher integration remains deferred until the final ambiguity visual-QC gate is accepted.
+Phase 0 now implements data conversion, exact annotation-vote target construction, real-data visual QC, XML label auditing, deterministic patient-level split generation, frozen exact patient manifests, nested label-budget manifests, export validation, a pinned full-export planner/exporter and the supervised YOLO26-sem entry point.
+
+A real seven-case LIDC `YOLO26n-sem` CPU smoke run has passed end to end. The next scientific milestone is the first frozen supervised benchmark run at the 1% labelled budget; Mean Teacher and MedSAM co-teacher integration follow after the supervised baseline is established.
