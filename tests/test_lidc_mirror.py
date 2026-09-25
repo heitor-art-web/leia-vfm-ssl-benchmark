@@ -1,8 +1,10 @@
+import numpy as np
 import pytest
 
 from leia_benchmark.data.lidc_mirror import (
     medotter_case_map,
     medotter_scan_summaries,
+    semantic_target_from_default_and_annotation_count,
 )
 from leia_benchmark.data.lidc_validation import select_visual_validation_cohort
 
@@ -15,6 +17,30 @@ def test_medotter_case_map_uses_patient_and_series_uid():
     mapping = medotter_case_map(rows)
     assert mapping[("P1", "uid-a")] == "P1_abc"
     assert mapping[("P1", "uid-b")] == "P1_def"
+
+
+def test_medotter_target_keeps_excluded_annotation_evidence_unknown():
+    default = np.zeros((2, 2, 2), dtype=np.uint8)
+    count = np.zeros_like(default)
+    default[0, 0, 0] = 1
+    count[0, 0, 0] = 3
+    count[0, 1, 0] = 2
+    count[1, 0, 0] = 1
+
+    target = semantic_target_from_default_and_annotation_count(default, count)
+
+    assert target[0, 0, 0] == 1
+    assert target[0, 1, 0] == 255
+    assert target[1, 0, 0] == 255
+    assert target[1, 1, 0] == 0
+
+
+def test_medotter_target_rejects_shape_mismatch():
+    with pytest.raises(ValueError, match="shapes differ"):
+        semantic_target_from_default_and_annotation_count(
+            np.zeros((2, 2, 2), dtype=np.uint8),
+            np.zeros((2, 2, 3), dtype=np.uint8),
+        )
 
 
 def test_medotter_summaries_and_selection():
