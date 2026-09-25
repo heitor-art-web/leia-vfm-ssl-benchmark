@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  push:
+    branches: [main, feat/lidc-phase0]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install minimal test dependencies
+        run: python -m pip install --upgrade pip numpy pytest
+      - name: Compile Python sources
+        run: python -m compileall -q src scripts tests
+      - name: Run unit tests
+        env:
+          PYTHONPATH: src
+        run: pytest -q
+
+  lidc-metadata-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install metadata smoke dependencies
+        run: python -m pip install --upgrade pip numpy huggingface_hub
+      - name: Select five real LIDC cases and verify mirror paths
+        env:
+          PYTHONPATH: src
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: >-
+          python scripts/bootstrap_lidc_hf.py
+          --metadata-only
+          --output /tmp/lidc_bootstrap
+      - name: Show pinned source and cohort
+        run: |
+          cat /tmp/lidc_bootstrap/SOURCE.json
+          cat /tmp/lidc_bootstrap/cohort.csv
