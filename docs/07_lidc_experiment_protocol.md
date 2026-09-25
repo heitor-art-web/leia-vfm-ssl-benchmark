@@ -191,10 +191,17 @@ Do not start benchmark training until all are true:
 
 ### Visual-QC status
 
-The first real-data gate has been accepted for five exact-instance cases: one no-volumetric-nodule control plus four radiologist high-suspicion nodules spanning approximately 7-45 mm. Exact instance isolation is used so an unrelated larger nodule in the same scan cannot replace the metadata-selected lesion in the preview.
+The trusted-reference gate is accepted for five exact-instance cases: one no-volumetric-nodule control plus four radiologist high-suspicion nodules spanning approximately 7-45 mm. Exact instance isolation is used so an unrelated larger nodule in the same scan cannot replace the metadata-selected lesion in the preview.
 
-Before model training, the QC set still needs explicit examples of ambiguous 1-2-reader contour evidence to exercise the `255 = UNKNOWN` path visually.
+The QC cohort has now been expanded to seven patient-unique cases with two deterministic ambiguity examples:
+
+```text
+one-reader contour -> UNKNOWN / ignore
+ two-reader contour -> UNKNOWN / ignore
+```
+
+Each ambiguity scan contains exactly one volumetrically annotated nodule and zero default-reference nodules. The rendered slices therefore exercise the scan-wide annotation-count path without contamination by a second volumetric nodule. Automated geometry, metadata and target checks are green. The two new amber UNKNOWN overlays still require final visual confirmation before training starts.
 
 ## Current implementation boundary
 
-Phase 0 now implements data conversion, consensus handling, real-data visual QC, deterministic patient-level split generation, nested label-budget manifests, validation and the supervised YOLO26-sem entry point. Mean Teacher and MedSAM co-teacher integration remains deferred until the remaining dataset quality gates are green.
+Phase 0 now implements data conversion, consensus handling, real-data visual QC, deterministic patient-level split generation, frozen exact patient manifests, nested label-budget manifests, validation and the supervised YOLO26-sem entry point. Mean Teacher and MedSAM co-teacher integration remains deferred until the final ambiguity visual-QC gate is accepted.
