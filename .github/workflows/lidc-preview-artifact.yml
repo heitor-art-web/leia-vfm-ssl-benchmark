@@ -1,0 +1,43 @@
+name: lidc-preview-artifact
+
+on:
+  push:
+    branches: [feat/lidc-phase0]
+    paths:
+      - .github/workflows/lidc-preview-artifact.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-previews:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install preview dependencies
+        run: python -m pip install --upgrade pip numpy nibabel Pillow huggingface_hub
+      - name: Download pinned five-case LIDC cohort
+        env:
+          PYTHONPATH: src
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: python scripts/bootstrap_lidc_hf.py --output /tmp/lidc_bootstrap
+      - name: Render CT, masks, overlays and crops
+        env:
+          PYTHONPATH: src
+        run: python scripts/render_lidc_mirror_previews.py --root /tmp/lidc_bootstrap
+      - name: Copy provenance into preview bundle
+        run: |
+          cp /tmp/lidc_bootstrap/SOURCE.json /tmp/lidc_bootstrap/previews/SOURCE.json
+          cp /tmp/lidc_bootstrap/cohort.csv /tmp/lidc_bootstrap/previews/cohort.csv
+      - name: Upload visual QC bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: lidc-five-case-visual-qc
+          path: /tmp/lidc_bootstrap/previews
+          if-no-files-found: error
+          retention-days: 14
