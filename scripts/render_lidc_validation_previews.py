@@ -19,12 +19,14 @@ from leia_benchmark.data.lidc_validation import (
     choose_max_positive_slice,
 )
 
+TRUSTED_RGB = np.array([30.0, 220.0, 70.0], dtype=np.float32)
+UNKNOWN_RGB = np.array([255.0, 0.0, 255.0], dtype=np.float32)
+OVERLAY_ALPHA = 0.58
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=(
-            "Render CT, mask, overlay and crop previews for a selected LIDC visual QC cohort."
-        )
+        description="Render CT, mask, overlay and crop previews for a selected LIDC visual-QC cohort."
     )
     parser.add_argument("--cohort", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -54,15 +56,10 @@ def _find_cluster(scan, annotation_ids: tuple[int, ...]):
     )
 
 
-def _cluster_target(scan, cluster, shape: tuple[int, int, int], policy: ConsensusPolicy):
+def _cluster_target(scan, cluster, shape: tuple[int, int, int], policy: ConsensusPolicy) -> np.ndarray:
     from pylidc.utils import consensus
 
-    _, bbox, masks = consensus(
-        cluster,
-        clevel=0.5,
-        ret_masks=True,
-        verbose=False,
-    )
+    _, bbox, masks = consensus(cluster, clevel=0.5, ret_masks=True, verbose=False)
     local = semantic_target_from_reader_masks(masks, policy)
     target = np.zeros(shape, dtype=np.uint8)
     merge_semantic_target(target, local, bbox)
@@ -82,16 +79,12 @@ def _choose_evidence_slice(mask: np.ndarray) -> int:
 def _make_overlay(gray: np.ndarray, mask: np.ndarray) -> np.ndarray:
     base = np.repeat(gray[:, :, None], 3, axis=2).astype(np.float32)
     out = base.copy()
-    alpha = 0.45
-
     positive = mask == 1
     unknown = mask == 255
     if np.any(positive):
-        green = np.array([30.0, 220.0, 70.0], dtype=np.float32)
-        out[positive] = (1.0 - alpha) * out[positive] + alpha * green
+        out[positive] = (1.0 - OVERLAY_ALPHA) * out[positive] + OVERLAY_ALPHA * TRUSTED_RGB
     if np.any(unknown):
-        amber = np.array([255.0, 170.0, 20.0], dtype=np.float32)
-        out[unknown] = (1.0 - alpha) * out[unknown] + alpha * amber
+        out[unknown] = (1.0 - OVERLAY_ALPHA) * out[unknown] + OVERLAY_ALPHA * UNKNOWN_RGB
     return np.clip(np.rint(out), 0, 255).astype(np.uint8)
 
 
@@ -106,14 +99,12 @@ def _crop_bounds(mask: np.ndarray, margin: int) -> tuple[slice, slice]:
     evidence = np.argwhere(mask != 0)
     if evidence.size == 0:
         return slice(0, mask.shape[0]), slice(0, mask.shape[1])
-
     r0, c0 = evidence.min(axis=0)
     r1, c1 = evidence.max(axis=0)
-    r0 = max(0, int(r0) - margin)
-    c0 = max(0, int(c0) - margin)
-    r1 = min(mask.shape[0], int(r1) + margin + 1)
-    c1 = min(mask.shape[1], int(c1) + margin + 1)
-    return slice(r0, r1), slice(c0, c1)
+    return (
+        slice(max(0, int(r0) - margin), min(mask.shape[0], int(r1) + margin + 1)),
+        slice(max(0, int(c0) - margin), min(mask.shape[1], int(c1) + margin + 1)),
+    )
 
 
 def _labelled_panel(image: Image.Image, title: str) -> Image.Image:
@@ -121,25 +112,22 @@ def _labelled_panel(image: Image.Image, title: str) -> Image.Image:
     header = 28
     panel = Image.new("RGB", (image.width, image.height + header), "white")
     panel.paste(image, (0, header))
-    draw = ImageDraw.Draw(panel)
-    draw.text((8, 7), title, fill="black")
+    ImageDraw.Draw(panel).text((8, 7), title, fill="black")
     return panel
 
 
 def _contact_sheet(ct: np.ndarray, mask: np.ndarray, overlay: np.ndarray, crop: np.ndarray) -> Image.Image:
     panels = [
-        _labelled_panel(Image.fromarray(ct, mode="L"), "CT lung window"),
-        _labelled_panel(Image.fromarray(_mask_preview(mask), mode="L"), "Mask: white=trusted, gray=UNKNOWN"),
-        _labelled_panel(Image.fromarray(overlay, mode="RGB"), "Overlay: green=trusted, amber=UNKNOWN"),
-        _labelled_panel(Image.fromarray(crop, mode="RGB"), "Nodule/evidence crop"),
+        _labelled_panel(Image.fromarray(ct), "CT lung window"),
+        _labelled_panel(Image.fromarray(_mask_preview(mask)), "Mask: white=trusted, gray=UNKNOWN"),
+        _labelled_panel(Image.fromarray(overlay), "Overlay: green=trusted, magenta=UNKNOWN"),
+        _labelled_panel(Image.fromarray(crop), "Nodule/evidence crop"),
     ]
     width = max(panel.width for panel in panels)
     height = max(panel.height for panel in panels)
     sheet = Image.new("RGB", (2 * width, 2 * height), "white")
     for idx, panel in enumerate(panels):
-        x = (idx % 2) * width
-        y = (idx // 2) * height
-        sheet.paste(panel, (x, y))
+        sheet.paste(panel, ((idx % 2) * width, (idx // 2) * height))
     return sheet
 
 
@@ -181,8 +169,8 @@ def main() -> None:
                 f"Expected exactly one pylidc scan for {patient_id}/{series_uid}, found {len(matches)}"
             )
         scan = matches[0]
-
         volume_hu = dicom_images_to_hu(scan.load_all_dicom_images(verbose=False))
+
         if annotation_ids:
             cluster = _find_cluster(scan, annotation_ids)
             target = _cluster_target(scan, cluster, volume_hu.shape, policy)
@@ -191,9 +179,7 @@ def main() -> None:
             target = np.zeros(volume_hu.shape, dtype=np.uint8)
             z = choose_lung_like_slice(volume_hu)
 
-        ct = normalize_hu(
-            volume_hu[:, :, z], low=args.window_low, high=args.window_high
-        )
+        ct = normalize_hu(volume_hu[:, :, z], low=args.window_low, high=args.window_high)
         mask = target[:, :, z]
         overlay = _make_overlay(ct, mask)
         rs, cs = _crop_bounds(mask, args.crop_margin)
@@ -201,10 +187,10 @@ def main() -> None:
 
         case_dir = args.output / patient_id
         case_dir.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(ct, mode="L").save(case_dir / "ct.png")
-        Image.fromarray(_mask_preview(mask), mode="L").save(case_dir / "mask.png")
-        Image.fromarray(overlay, mode="RGB").save(case_dir / "overlay.png")
-        Image.fromarray(crop, mode="RGB").save(case_dir / "crop.png")
+        Image.fromarray(ct).save(case_dir / "ct.png")
+        Image.fromarray(_mask_preview(mask)).save(case_dir / "mask.png")
+        Image.fromarray(overlay).save(case_dir / "overlay.png")
+        Image.fromarray(crop).save(case_dir / "crop.png")
         _contact_sheet(ct, mask, overlay, crop).save(case_dir / "contact_sheet.png")
 
         report_rows.append(
@@ -227,7 +213,7 @@ def main() -> None:
         writer.writerows(report_rows)
 
     print(f"Rendered {len(report_rows)} cases to {args.output.resolve()}")
-    print(f"Open the per-case contact_sheet.png files for human validation.")
+    print("Open the per-case contact_sheet.png files for human validation.")
 
 
 if __name__ == "__main__":
