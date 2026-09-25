@@ -1,0 +1,83 @@
+name: yolo26-sem-smoke
+
+on:
+  push:
+    branches: [feat/lidc-phase0]
+    paths:
+      - .github/workflows/yolo26-sem-smoke.yml
+      - scripts/bootstrap_lidc_hf.py
+      - scripts/export_lidc_mirror_smoke.py
+      - scripts/train_yolo26_sem_supervised.py
+      - scripts/validate_lidc_export.py
+      - src/leia_benchmark/data/lidc.py
+      - src/leia_benchmark/data/lidc_mirror.py
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONPATH: src
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      ULTRALYTICS_SETTINGS: /tmp/ultralytics-settings.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install smoke dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy nibabel Pillow PyYAML huggingface_hub ultralytics
+
+      - name: Download pinned seven-case real LIDC cohort
+        run: python scripts/bootstrap_lidc_hf.py --output /tmp/lidc_bootstrap
+
+      - name: Export tiny 2.5D semantic smoke dataset
+        run: |
+          python scripts/export_lidc_mirror_smoke.py \
+            --root /tmp/lidc_bootstrap \
+            --output /tmp/lidc_yolo_smoke \
+            --val-patient LIDC-IDRI-0191 \
+            --val-patient LIDC-IDRI-0483 \
+            --max-evidence-slices 8 \
+            --negative-slices-per-case 2
+
+      - name: Validate RGB/mask pairing, labels and patient isolation
+        run: python scripts/validate_lidc_export.py --dataset /tmp/lidc_yolo_smoke --splits train val
+
+      - name: Train YOLO26n-sem for one CPU epoch
+        run: |
+          python scripts/train_yolo26_sem_supervised.py \
+            --data /tmp/lidc_yolo_smoke/dataset.yaml \
+            --model yolo26n-sem.pt \
+            --epochs 1 \
+            --imgsz 256 \
+            --batch 2 \
+            --device cpu \
+            --seed 1337 \
+            --project /tmp/yolo_runs \
+            --name smoke
+
+      - name: Verify training outputs exist
+        run: |
+          test -d /tmp/yolo_runs/smoke
+          find /tmp/yolo_runs/smoke -maxdepth 2 -type f -print
+
+      - name: Upload smoke evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: yolo26-sem-real-lidc-smoke
+          path: |
+            /tmp/lidc_yolo_smoke/manifest.csv
+            /tmp/lidc_yolo_smoke/manifest_train.csv
+            /tmp/lidc_yolo_smoke/manifest_val.csv
+            /tmp/lidc_yolo_smoke/dataset.yaml
+            /tmp/yolo_runs/smoke
+          if-no-files-found: error
+          retention-days: 14
