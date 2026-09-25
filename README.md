@@ -9,7 +9,7 @@ The first application domain is **pulmonary nodule segmentation in thoracic CT**
 ## Minimal benchmark
 
 - **Primary dataset:** LIDC-IDRI
-- **Task:** semantic segmentation of pulmonary nodules (phase 1)
+- **Task:** semantic segmentation of the contourable LIDC pulmonary nodules (the ≥3 mm nodule annotations represented by `pylidc.Annotation`) in phase 1
 - **Specialist:** YOLO26 semantic segmentation, using a 2.5D CT representation
 - **SSL method:** Mean Teacher / EMA teacher around the same specialist
 - **Foundation model:** frozen MedSAM used as a co-teacher / pseudo-label refiner
@@ -18,6 +18,8 @@ The first application domain is **pulmonary nodule segmentation in thoracic CT**
 - **Primary metrics:** Dice / IoU on trusted nodule pixels, plus lesion-aware evaluation
 - **Secondary metrics:** HD95 where defined, pseudo-label acceptance coverage, pseudo-label quality, compute cost
 - **Repetitions:** 3 fixed seeds minimum; stronger repeated/CV analysis later
+
+The phase-1 target is deliberately narrow. LIDC marks nodules <3 mm and non-nodules differently from contourable nodules ≥3 mm; those other mark types are **not positive targets in this benchmark**. `background=0` therefore means background relative to this phase-1 segmentation target, not “absence of all pulmonary pathology.”
 
 ## Why LIDC-IDRI?
 
@@ -47,7 +49,7 @@ A separate validation-only diagnostic measures whether MedSAM improves teacher-d
 The phase-1 semantic target is deliberately conservative:
 
 ```text
-0   = background
+0   = background relative to the contourable-nodule target
 1   = trusted pulmonary nodule
 255 = UNKNOWN / disputed annotation evidence
 ```
@@ -98,6 +100,22 @@ python scripts/audit_lidc_annotations.py \
   --output data/lidc_annotation_audit.csv
 ```
 
+Plan a patient-level split only after reviewing that audit:
+
+```bash
+python scripts/plan_lidc_splits.py \
+  data/lidc_annotation_audit_patients.csv \
+  --output-dir data/splits/lidc_v1
+```
+
+Then generate deterministic nested 1/5/10/25% label budgets from the frozen train pool:
+
+```bash
+python scripts/make_lidc_label_budgets.py \
+  data/splits/lidc_v1/train_patients.txt \
+  --output-dir data/splits/lidc_v1/budgets
+```
+
 Run a one-patient smoke conversion first:
 
 ```bash
@@ -130,12 +148,16 @@ Implemented on the LIDC pipeline branch:
 - reader-vote target construction;
 - explicit `UNKNOWN=255`;
 - positive-over-unknown merge precedence;
+- multi-scan-safe sample identifiers;
+- patient-level annotation audit and split planning;
+- nested annotation-budget generation;
 - YOLO26 semantic dataset config;
 - export manifest;
 - image/mask validator;
 - patient-leakage validator;
-- LIDC annotation-density audit;
-- unit tests for the pure target-building code.
+- reference-compatible MedSAM prompt/refinement wrapper;
+- buffer-safe Mean Teacher EMA implementation;
+- unit-test CI.
 
 No performance claims are made yet.
 
