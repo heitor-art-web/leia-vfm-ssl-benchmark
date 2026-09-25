@@ -10,18 +10,16 @@ from PIL import Image
 import yaml
 
 from leia_benchmark.data.lidc import make_25d_slice
-from leia_benchmark.data.lidc_mirror import (
-    semantic_target_from_default_and_annotation_count,
-)
+from leia_benchmark.data.lidc_targets import semantic_target_from_annotation_count
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Export a deliberately tiny MedOtter LIDC cohort to the Ultralytics "
-            "semantic PNG-mask format for an interface smoke test. This is NOT the "
-            "benchmark ground-truth export: the scientific benchmark must use the "
-            "canonical individual-reader contour path."
+            "semantic PNG-mask format for an interface smoke test. The mask policy "
+            "is computed directly from voxelwise annotation counts: >=3 trusted, "
+            "1-2 UNKNOWN. This remains a smoke/interface dataset, not a benchmark result."
         )
     )
     parser.add_argument("--root", type=Path, required=True)
@@ -91,7 +89,6 @@ def main() -> None:
 
     val_patients = set(args.val_patient)
     if not val_patients:
-        # Deterministic fallback only for local convenience. CI passes explicit IDs.
         val_patients = {
             row["patient_id"]
             for row in sorted(cohort, key=lambda r: r["patient_id"])[-2:]
@@ -115,18 +112,15 @@ def main() -> None:
         split = "val" if patient_id in val_patients else "train"
 
         volume_hu = _load(args.root / "images" / f"{case_id}.nii.gz").astype(np.float32)
-        default_mask = _load(args.root / "masks" / f"{case_id}.nii.gz")
         annotation_count = _load(
             args.root / "masks_annotation_count" / f"{case_id}.nii.gz"
         )
-        if volume_hu.shape != default_mask.shape or volume_hu.shape != annotation_count.shape:
+        if volume_hu.shape != annotation_count.shape:
             raise RuntimeError(f"geometry mismatch for {case_id}")
         if volume_hu.ndim != 3:
             raise RuntimeError(f"expected HxWxZ volume for {case_id}, got {volume_hu.shape}")
 
-        target = semantic_target_from_default_and_annotation_count(
-            default_mask, annotation_count
-        )
+        target = semantic_target_from_annotation_count(annotation_count)
         evidence = np.where(np.count_nonzero(target != 0, axis=(0, 1)) > 0)[0]
         selected = set(_subsample(evidence, args.max_evidence_slices))
         selected.update(_negative_indices(target, args.negative_slices_per_case))
@@ -205,7 +199,7 @@ def main() -> None:
     val_n = sum(row["split"] == "val" for row in manifest)
     print(f"Smoke export complete: train={train_n} slices, val={val_n} slices")
     print(f"Dataset YAML: {dataset_path.resolve()}")
-    print("NOTE: mirror-derived smoke targets are interface validation only, not benchmark GT.")
+    print("Target policy: annotation_count >=3 -> 1; 1-2 -> 255; 0 -> 0.")
 
 
 if __name__ == "__main__":
