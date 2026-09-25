@@ -24,6 +24,7 @@ lidc = [
   "pylidc==0.2.3",
   "pydicom>=2.4",
   "Pillow>=10.0",
+  "huggingface_hub>=0.25",
 ]
 yolo = [
   "ultralytics",
