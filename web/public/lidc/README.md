@@ -1,19 +1,21 @@
 # LIDC showcase assets
 
-This directory is intentionally populated from the real seven-case QC export rather than with fabricated demo images.
+This directory contains the real seven-case visual-QC evidence used by the research showcase. No fabricated medical images are used here.
 
-Expected layout:
+Layout:
 
 ```text
 public/lidc/<case_id>/contact_sheet.webp
+public/lidc/provenance.json
 ```
 
-From the repository root, after generating or downloading the seven-case QC directory, run:
+The assets are generated reproducibly by `.github/workflows/sync-web-qc-assets.yml` from the pinned LIDC development cohort and the repository's QC renderer.
 
-```bash
-python scripts/sync_showcase_qc_assets.py \
-  --qc-root /path/to/lidc_qc7_magenta \
-  --web-public web/public/lidc
+Visual convention:
+
+```text
+green   trusted foreground
+magenta UNKNOWN / ignore
 ```
 
-The UI has a clear fallback state when an asset has not yet been synced.
+These sheets document benchmark construction and annotation handling. They are not model predictions and must not be presented as cancer diagnoses.
