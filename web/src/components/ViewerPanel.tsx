@@ -33,10 +33,10 @@ export function ViewerPanel({ record }: ViewerPanelProps) {
         ) : (
           <div className="asset-placeholder">
             <div className="lung-symbol">◖ ◗</div>
-            <strong>QC preview asset not bundled yet</strong>
+            <strong>QC preview asset could not be loaded</strong>
             <p>
-              Run the asset sync script after generating the seven-case QC bundle. The UI is already wired to the
-              final public path.
+              The repository normally bundles this validated contact sheet. Re-run the QC asset sync workflow if the
+              static file is missing or was removed from a deployment.
             </p>
             <code>{record.assets.contactSheet}</code>
           </div>
