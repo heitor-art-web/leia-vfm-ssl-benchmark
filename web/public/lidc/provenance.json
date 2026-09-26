@@ -1,0 +1,68 @@
+{
+  "cases": [
+    "LIDC-IDRI-0028_7298352671",
+    "LIDC-IDRI-0081_4757844726",
+    "LIDC-IDRI-0173_5464313394",
+    "LIDC-IDRI-0191_4646251928",
+    "LIDC-IDRI-0260_8774929286",
+    "LIDC-IDRI-0445_2444806008",
+    "LIDC-IDRI-0483_7530734559"
+  ],
+  "dataset": "LIDC-IDRI",
+  "purpose": "Seven-case visual QC evidence for the pulmonary nodule segmentation benchmark.",
+  "source": {
+    "cohort_manifest": "cohort.csv",
+    "note": "LIDC malignancy is a subjective radiologist likelihood rating, not a pathology-confirmed cancer label. Annotation count is not treated as exposed reader identity. This mirror is a development convenience; the canonical dataset source remains TCIA/IDC.",
+    "repo_id": "MedOtter/LIDC-IDRI",
+    "requested_revision": "main",
+    "required_files_verified": [
+      "images/LIDC-IDRI-0028_7298352671.nii.gz",
+      "masks/LIDC-IDRI-0028_7298352671.nii.gz",
+      "masks_instance/LIDC-IDRI-0028_7298352671.nii.gz",
+      "masks_annotation_count/LIDC-IDRI-0028_7298352671.nii.gz",
+      "images/LIDC-IDRI-0445_2444806008.nii.gz",
+      "masks/LIDC-IDRI-0445_2444806008.nii.gz",
+      "masks_instance/LIDC-IDRI-0445_2444806008.nii.gz",
+      "masks_annotation_count/LIDC-IDRI-0445_2444806008.nii.gz",
+      "images/LIDC-IDRI-0260_8774929286.nii.gz",
+      "masks/LIDC-IDRI-0260_8774929286.nii.gz",
+      "masks_instance/LIDC-IDRI-0260_8774929286.nii.gz",
+      "masks_annotation_count/LIDC-IDRI-0260_8774929286.nii.gz",
+      "images/LIDC-IDRI-0081_4757844726.nii.gz",
+      "masks/LIDC-IDRI-0081_4757844726.nii.gz",
+      "masks_instance/LIDC-IDRI-0081_4757844726.nii.gz",
+      "masks_annotation_count/LIDC-IDRI-0081_4757844726.nii.gz",
+      "images/LIDC-IDRI-0191_4646251928.nii.gz",
+      "masks/LIDC-IDRI-0191_4646251928.nii.gz",
+      "masks_instance/LIDC-IDRI-0191_4646251928.nii.gz",
+      "masks_annotation_count/LIDC-IDRI-0191_4646251928.nii.gz",
+      "images/LIDC-IDRI-0173_5464313394.nii.gz",
+      "masks/LIDC-IDRI-0173_5464313394.nii.gz",
+      "masks_instance/LIDC-IDRI-0173_5464313394.nii.gz",
+      "masks_annotation_count/LIDC-IDRI-0173_5464313394.nii.gz",
+      "images/LIDC-IDRI-0483_7530734559.nii.gz",
+      "masks/LIDC-IDRI-0483_7530734559.nii.gz",
+      "masks_instance/LIDC-IDRI-0483_7530734559.nii.gz",
+      "masks_annotation_count/LIDC-IDRI-0483_7530734559.nii.gz"
+    ],
+    "resolved_revision": "6ddf7cab582ee2f9da278f996f3bc9c1940f57b2",
+    "selection": {
+      "ambiguous": "one one-reader and one two-reader case; each scan has exactly one volumetric nodule, zero default-reference nodules, and is chosen deterministically near the middle of its diameter distribution",
+      "control": "one patient with no volumetrically annotated >=3 mm nodule when available",
+      "high_suspicion": "four patient-unique scans with >=3 nodule annotations and median radiologist malignancy score >=4, spread across the observed diameter range",
+      "visual_qc": "trusted high-suspicion nodules are isolated by masks_instance id; ambiguous cases exercise the scan-wide annotation-count -> UNKNOWN path"
+    }
+  },
+  "targetPolicy": {
+    "background": 0,
+    "trusted": 1,
+    "trustedThreshold": "3+ annotation votes",
+    "unknownIgnore": 255,
+    "unknownRange": "1-2 annotation votes"
+  },
+  "visualConvention": {
+    "trusted": "green",
+    "unknownIgnore": "magenta"
+  },
+  "warning": "QC images are evidence for benchmark construction, not model predictions or cancer diagnoses."
+}
