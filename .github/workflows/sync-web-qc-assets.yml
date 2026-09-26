@@ -1,0 +1,105 @@
+name: sync-web-qc-assets
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/lidc-phase0]
+    paths:
+      - .github/workflows/sync-web-qc-assets.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install QC dependencies
+        run: python -m pip install --upgrade pip numpy nibabel Pillow huggingface_hub
+      - name: Download pinned seven-case LIDC cohort
+        env:
+          PYTHONPATH: src
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: python scripts/bootstrap_lidc_hf.py --output /tmp/lidc_bootstrap
+      - name: Render validated trusted and UNKNOWN QC sheets
+        env:
+          PYTHONPATH: src
+        run: python scripts/render_lidc_mirror_previews.py --root /tmp/lidc_bootstrap
+      - name: Build compact showcase assets
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+          from PIL import Image
+
+          preview_root = Path('/tmp/lidc_bootstrap/previews')
+          public_root = Path('web/public/lidc')
+          public_root.mkdir(parents=True, exist_ok=True)
+
+          sheets = sorted(preview_root.glob('*/contact_sheet.png'))
+          if len(sheets) != 7:
+              raise SystemExit(f'Expected 7 contact sheets, found {len(sheets)}')
+
+          case_ids = []
+          for source in sheets:
+              case_id = source.parent.name
+              case_ids.append(case_id)
+              target_dir = public_root / case_id
+              target_dir.mkdir(parents=True, exist_ok=True)
+              with Image.open(source) as image:
+                  image.convert('RGB').save(
+                      target_dir / 'contact_sheet.webp',
+                      'WEBP',
+                      quality=82,
+                      method=6,
+                  )
+
+          source = json.loads(Path('/tmp/lidc_bootstrap/SOURCE.json').read_text(encoding='utf-8'))
+          provenance = {
+              'dataset': 'LIDC-IDRI',
+              'purpose': 'Seven-case visual QC evidence for the pulmonary nodule segmentation benchmark.',
+              'source': source,
+              'targetPolicy': {
+                  'background': 0,
+                  'trusted': 1,
+                  'unknownIgnore': 255,
+                  'trustedThreshold': '3+ annotation votes',
+                  'unknownRange': '1-2 annotation votes',
+              },
+              'visualConvention': {'trusted': 'green', 'unknownIgnore': 'magenta'},
+              'cases': case_ids,
+              'warning': 'QC images are evidence for benchmark construction, not model predictions or cancer diagnoses.',
+          }
+          (public_root / 'provenance.json').write_text(
+              json.dumps(provenance, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          print(f'Wrote {len(case_ids)} showcase QC assets to {public_root}')
+          PY
+      - name: Verify showcase files
+        run: |
+          test "$(find web/public/lidc -name contact_sheet.webp | wc -l)" -eq 7
+          find web/public/lidc -name contact_sheet.webp -size +10k | sort
+          test "$(find web/public/lidc -name contact_sheet.webp -size +10k | wc -l)" -eq 7
+          test -s web/public/lidc/provenance.json
+      - name: Commit generated static assets to feature branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/public/lidc
+          if git diff --cached --quiet; then
+            echo "Showcase assets already up to date."
+            exit 0
+          fi
+          git commit -m "Bundle real LIDC QC assets for showcase"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
