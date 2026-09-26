@@ -1,0 +1,128 @@
+{
+  "counts": {
+    "patients_total": 1010,
+    "patients_with_default_nodule": 696,
+    "test": {
+      "patients": 151,
+      "with_default_nodule": 104
+    },
+    "train": {
+      "patients": 707,
+      "with_default_nodule": 487
+    },
+    "val": {
+      "patients": 152,
+      "with_default_nodule": 105
+    }
+  },
+  "label_budgets": {
+    "seed1337_001pct": {
+      "expected_labelled_patients": 7,
+      "fraction": 0.01,
+      "labelled_patients": 7,
+      "labelled_with_default_nodule": 3,
+      "unlabelled_patients": 700
+    },
+    "seed1337_005pct": {
+      "expected_labelled_patients": 35,
+      "fraction": 0.05,
+      "labelled_patients": 35,
+      "labelled_with_default_nodule": 25,
+      "unlabelled_patients": 672
+    },
+    "seed1337_010pct": {
+      "expected_labelled_patients": 71,
+      "fraction": 0.1,
+      "labelled_patients": 71,
+      "labelled_with_default_nodule": 49,
+      "unlabelled_patients": 636
+    },
+    "seed1337_025pct": {
+      "expected_labelled_patients": 177,
+      "fraction": 0.25,
+      "labelled_patients": 177,
+      "labelled_with_default_nodule": 117,
+      "unlabelled_patients": 530
+    },
+    "seed2026_001pct": {
+      "expected_labelled_patients": 7,
+      "fraction": 0.01,
+      "labelled_patients": 7,
+      "labelled_with_default_nodule": 4,
+      "unlabelled_patients": 700
+    },
+    "seed2026_005pct": {
+      "expected_labelled_patients": 35,
+      "fraction": 0.05,
+      "labelled_patients": 35,
+      "labelled_with_default_nodule": 23,
+      "unlabelled_patients": 672
+    },
+    "seed2026_010pct": {
+      "expected_labelled_patients": 71,
+      "fraction": 0.1,
+      "labelled_patients": 71,
+      "labelled_with_default_nodule": 47,
+      "unlabelled_patients": 636
+    },
+    "seed2026_025pct": {
+      "expected_labelled_patients": 177,
+      "fraction": 0.25,
+      "labelled_patients": 177,
+      "labelled_with_default_nodule": 114,
+      "unlabelled_patients": 530
+    },
+    "seed31415_001pct": {
+      "expected_labelled_patients": 7,
+      "fraction": 0.01,
+      "labelled_patients": 7,
+      "labelled_with_default_nodule": 5,
+      "unlabelled_patients": 700
+    },
+    "seed31415_005pct": {
+      "expected_labelled_patients": 35,
+      "fraction": 0.05,
+      "labelled_patients": 35,
+      "labelled_with_default_nodule": 25,
+      "unlabelled_patients": 672
+    },
+    "seed31415_010pct": {
+      "expected_labelled_patients": 71,
+      "fraction": 0.1,
+      "labelled_patients": 71,
+      "labelled_with_default_nodule": 45,
+      "unlabelled_patients": 636
+    },
+    "seed31415_025pct": {
+      "expected_labelled_patients": 177,
+      "fraction": 0.25,
+      "labelled_patients": 177,
+      "labelled_with_default_nodule": 121,
+      "unlabelled_patients": 530
+    }
+  },
+  "source": {
+    "repo_id": "MedOtter/LIDC-IDRI",
+    "resolved_revision": "6ddf7cab582ee2f9da278f996f3bc9c1940f57b2"
+  },
+  "split_policy": {
+    "heldout_stratification": "has_default_nodule",
+    "label_budget_sampling": "target-blind deterministic hash ordering; nested within seed",
+    "label_fractions": [
+      0.01,
+      0.05,
+      0.1,
+      0.25
+    ],
+    "label_seeds": [
+      1337,
+      2026,
+      31415
+    ],
+    "seed": 20260925,
+    "test_fraction": 0.15,
+    "train_fraction": 0.7,
+    "unit": "patient",
+    "val_fraction": 0.15
+  }
+}

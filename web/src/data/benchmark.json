@@ -1,0 +1,29 @@
+{
+  "split": {
+    "train": 707,
+    "validation": 152,
+    "test": 151
+  },
+  "budgets": [
+    { "id": "001pct", "label": "1%", "patients": 7 },
+    { "id": "005pct", "label": "5%", "patients": 35 },
+    { "id": "010pct", "label": "10%", "patients": 71 },
+    { "id": "025pct", "label": "25%", "patients": 177 }
+  ],
+  "seeds": [1337, 2026, 31415],
+  "metrics": ["Dice", "IoU", "Sensitivity", "Precision", "HD95"],
+  "matrix": [
+    { "method": "Supervised", "budget": "1%", "status": "smoke-only", "dice": null, "iou": null },
+    { "method": "Supervised", "budget": "5%", "status": "pending", "dice": null, "iou": null },
+    { "method": "Supervised", "budget": "10%", "status": "pending", "dice": null, "iou": null },
+    { "method": "Supervised", "budget": "25%", "status": "pending", "dice": null, "iou": null },
+    { "method": "Mean Teacher", "budget": "1%", "status": "pending", "dice": null, "iou": null },
+    { "method": "Mean Teacher", "budget": "5%", "status": "pending", "dice": null, "iou": null },
+    { "method": "Mean Teacher", "budget": "10%", "status": "pending", "dice": null, "iou": null },
+    { "method": "Mean Teacher", "budget": "25%", "status": "pending", "dice": null, "iou": null },
+    { "method": "Mean Teacher + MedSAM", "budget": "1%", "status": "pending", "dice": null, "iou": null },
+    { "method": "Mean Teacher + MedSAM", "budget": "5%", "status": "pending", "dice": null, "iou": null },
+    { "method": "Mean Teacher + MedSAM", "budget": "10%", "status": "pending", "dice": null, "iou": null },
+    { "method": "Mean Teacher + MedSAM", "budget": "25%", "status": "pending", "dice": null, "iou": null }
+  ]
+}

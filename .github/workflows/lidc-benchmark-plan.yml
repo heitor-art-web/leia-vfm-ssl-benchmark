@@ -1,0 +1,78 @@
+name: lidc-benchmark-plan
+
+on:
+  push:
+    branches: [feat/lidc-phase0]
+    paths:
+      - .github/workflows/lidc-benchmark-plan.yml
+      - scripts/export_lidc_mirror_benchmark.py
+      - splits/lidc/v1/manifest.json
+      - src/leia_benchmark/data/lidc_targets.py
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: src
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install planning dependencies
+        run: python -m pip install --upgrade pip numpy nibabel Pillow PyYAML huggingface_hub
+
+      - name: Build pinned seed-1337 1-percent train/validation plan
+        run: |
+          python scripts/export_lidc_mirror_benchmark.py \
+            --output /tmp/lidc_plan \
+            --seed 1337 \
+            --budget 001pct \
+            --splits train val \
+            --metadata-only
+
+      - name: Validate patient counts, isolation and scan coverage
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+
+          path = Path('/tmp/lidc_plan/export_plan.csv')
+          rows = list(csv.DictReader(path.open(newline='', encoding='utf-8')))
+          assert rows, 'empty export plan'
+          by_split = {}
+          for row in rows:
+              by_split.setdefault(row['split'], []).append(row)
+
+          train_patients = {row['patient_id'] for row in by_split['train']}
+          val_patients = {row['patient_id'] for row in by_split['val']}
+          assert len(train_patients) == 7, len(train_patients)
+          assert len(val_patients) == 152, len(val_patients)
+          assert train_patients.isdisjoint(val_patients)
+          assert len(by_split['train']) >= len(train_patients)
+          assert len(by_split['val']) >= len(val_patients)
+          assert all(int(row['n_slices']) > 0 for row in rows)
+          assert all(row['image_source'].startswith('images/') for row in rows)
+          assert all(row['annotation_count_source'].startswith('masks_annotation_count/') for row in rows)
+          print(
+              f"plan validated: train={len(train_patients)} patients/{len(by_split['train'])} scans; "
+              f"val={len(val_patients)} patients/{len(by_split['val'])} scans"
+          )
+          PY
+
+      - name: Upload export plan evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: lidc-seed1337-001pct-export-plan
+          path: |
+            /tmp/lidc_plan/export_plan.csv
+            /tmp/lidc_plan/PROVENANCE.json
+          if-no-files-found: error
+          retention-days: 14

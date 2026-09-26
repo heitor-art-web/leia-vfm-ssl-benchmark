@@ -1,0 +1,7 @@
+[
+  { "id": "ct", "title": "Chest CT", "subtitle": "2.5D z-1 / z / z+1" },
+  { "id": "specialist", "title": "YOLO26-sem", "subtitle": "Pulmonary nodule specialist" },
+  { "id": "teacher", "title": "Mean Teacher", "subtitle": "EMA pseudo-label evidence" },
+  { "id": "vfm", "title": "MedSAM", "subtitle": "Frozen co-teacher / refiner" },
+  { "id": "output", "title": "Segmentation", "subtitle": "Trusted mask + uncertainty" }
+]

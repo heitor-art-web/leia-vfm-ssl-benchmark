@@ -1,0 +1,79 @@
+[
+  {
+    "patientId": "LIDC-IDRI-0028",
+    "caseId": "LIDC-IDRI-0028_7298352671",
+    "role": "control",
+    "title": "No volumetric target nodule",
+    "description": "Control for the v1 volumetric segmentation task. This does not imply a clinically normal lung.",
+    "annotationVotes": 0,
+    "diameterMm": null,
+    "malignancyMedian": null,
+    "assets": { "contactSheet": "/lidc/LIDC-IDRI-0028_7298352671/contact_sheet.webp" }
+  },
+  {
+    "patientId": "LIDC-IDRI-0445",
+    "caseId": "LIDC-IDRI-0445_2444806008",
+    "role": "trusted",
+    "title": "Trusted small nodule",
+    "description": "High-suspicion QC example with three annotation votes.",
+    "annotationVotes": 3,
+    "diameterMm": 7.44,
+    "malignancyMedian": 4,
+    "assets": { "contactSheet": "/lidc/LIDC-IDRI-0445_2444806008/contact_sheet.webp" }
+  },
+  {
+    "patientId": "LIDC-IDRI-0260",
+    "caseId": "LIDC-IDRI-0260_8774929286",
+    "role": "trusted",
+    "title": "Trusted medium nodule",
+    "description": "Four-vote trusted QC example.",
+    "annotationVotes": 4,
+    "diameterMm": 16.87,
+    "malignancyMedian": 4,
+    "assets": { "contactSheet": "/lidc/LIDC-IDRI-0260_8774929286/contact_sheet.webp" }
+  },
+  {
+    "patientId": "LIDC-IDRI-0081",
+    "caseId": "LIDC-IDRI-0081_4757844726",
+    "role": "trusted",
+    "title": "Trusted larger nodule",
+    "description": "Three-vote high-suspicion QC example.",
+    "annotationVotes": 3,
+    "diameterMm": 23.94,
+    "malignancyMedian": 5,
+    "assets": { "contactSheet": "/lidc/LIDC-IDRI-0081_4757844726/contact_sheet.webp" }
+  },
+  {
+    "patientId": "LIDC-IDRI-0191",
+    "caseId": "LIDC-IDRI-0191_4646251928",
+    "role": "trusted",
+    "title": "Trusted large nodule",
+    "description": "Four-vote high-suspicion QC example spanning the large-lesion end of the visual gate.",
+    "annotationVotes": 4,
+    "diameterMm": 44.6,
+    "malignancyMedian": 5,
+    "assets": { "contactSheet": "/lidc/LIDC-IDRI-0191_4646251928/contact_sheet.webp" }
+  },
+  {
+    "patientId": "LIDC-IDRI-0173",
+    "caseId": "LIDC-IDRI-0173_5464313394",
+    "role": "unknown",
+    "title": "One-vote UNKNOWN",
+    "description": "A single contour annotation is retained as UNKNOWN / ignore rather than forced to background.",
+    "annotationVotes": 1,
+    "diameterMm": 6.72,
+    "malignancyMedian": null,
+    "assets": { "contactSheet": "/lidc/LIDC-IDRI-0173_5464313394/contact_sheet.webp" }
+  },
+  {
+    "patientId": "LIDC-IDRI-0483",
+    "caseId": "LIDC-IDRI-0483_7530734559",
+    "role": "unknown",
+    "title": "Two-vote UNKNOWN",
+    "description": "Two contour annotations remain UNKNOWN / ignore under the conservative 3-vote trusted policy.",
+    "annotationVotes": 2,
+    "diameterMm": 7.55,
+    "malignancyMedian": null,
+    "assets": { "contactSheet": "/lidc/LIDC-IDRI-0483_7530734559/contact_sheet.webp" }
+  }
+]
