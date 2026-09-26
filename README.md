@@ -38,17 +38,17 @@ A standalone `MedSAM` baseline is scientifically useful, but its prompt source m
 
 ## LIDC-IDRI annotation policy
 
-The first implementation uses volumetric contours for nodules >= 3 mm and preserves reader disagreement:
+The first implementation uses volumetric contours for nodules >= 3 mm and preserves annotation disagreement:
 
 ```text
 0   = task background
-1   = trusted nodule pixel (>= 3 of 4 possible reader votes)
-255 = ambiguous / unknown (1-2 reader votes)
+1   = trusted nodule pixel (>= 3 annotation votes)
+255 = ambiguous / unknown (1-2 annotation votes)
 ```
 
 The `255` value is excluded from Ultralytics semantic-segmentation loss and metrics. This prevents disputed pixels from being silently converted into background.
 
-The 3-reader rule is a benchmark policy, not a medical definition of truth, and should later be ablated.
+The 3-annotation rule is a benchmark policy, not a medical definition of truth, and should later be ablated.
 
 See `docs/06_lidc_phase0.md` for the complete dataset contract and limitations.
 
@@ -64,6 +64,21 @@ channel 2 = slice z+1
 
 DICOM `RescaleSlope` and `RescaleIntercept` are applied before deterministic HU windowing. The initial window is `[-1000, 400] HU`.
 
+## Research showcase
+
+A static TypeScript/React/Vite showcase lives under [`web/`](web/). It presents the frozen protocol and the seven real visual-QC cases without inventing benchmark scores.
+
+Visual convention:
+
+```text
+green   = trusted foreground
+magenta = UNKNOWN / ignore
+```
+
+The bundled CT contact sheets are benchmark-construction evidence, not model predictions. The UI is a research preview, not a medical device or cancer-diagnosis system.
+
+For Vercel, import this repository and set the project **Root Directory** to `web`. The app includes a production asset check and a `web/vercel.json` configuration.
+
 ## Repository map
 
 ```text
@@ -75,23 +90,28 @@ scripts/                 export, validation and split utilities
 experiments/             frozen run matrix
 results/                 result templates (no fabricated numbers)
 tests/                   unit tests
+web/                     TypeScript research showcase
 ```
 
 ## Current status
 
-**Phase 0 — LIDC-IDRI dataset engineering and protocol freeze.** No performance claims are made yet.
+**Phase 0 — LIDC-IDRI dataset engineering, protocol freeze and showcase.** No scientific performance claims are made yet.
 
-Implemented on the development branch:
+Implemented:
 
-- reader-vote consensus primitives;
-- explicit `0 / 1 / 255` semantic targets;
+- explicit `0 / 1 / 255` annotation-vote targets;
 - DICOM rescale to Hounsfield units;
 - deterministic 2.5D CT export;
-- Ultralytics semantic dataset layout;
-- export manifest;
-- integrity checks for patient leakage, image/mask pairing and mask values.
+- frozen patient-level train/validation/test split and nested 1/5/10/25% label budgets;
+- export manifest and integrity checks;
+- seven-case real-data visual QC with trusted and UNKNOWN examples;
+- original XML label audit for the QC cohort;
+- real-data YOLO26-sem CPU smoke run;
+- Vercel-ready showcase with real bundled QC assets.
 
-The repository does not include LIDC-IDRI DICOM files, MedSAM weights or YOLO weights. Obtain external data and weights from their official sources and respect their licenses and terms.
+The next scientific milestone is the first frozen full supervised run at the 1% labelled budget. Mean Teacher and MedSAM co-teacher experiments follow after the supervised baseline is established.
+
+The repository does not include the full LIDC-IDRI dataset, MedSAM weights or YOLO weights. Obtain external data and weights from their official sources and respect their licenses and terms.
 
 ## Reproducibility rules
 
@@ -99,7 +119,7 @@ The repository does not include LIDC-IDRI DICOM files, MedSAM weights or YOLO we
 - Freeze test patients before any tuning.
 - Never create human ground truth from model predictions.
 - `unlabelled` means **unknown label**, not background / negative.
-- Keep reader disagreement auditable instead of forcing consensus everywhere.
+- Keep annotation disagreement auditable instead of forcing consensus everywhere.
 - Reuse the same frozen patient splits across all benchmark arms.
 - Report all seeds; never select only the best run.
 - Tune pseudo-label thresholds on validation data only.
