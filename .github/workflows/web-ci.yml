@@ -2,7 +2,7 @@ name: web-ci
 
 on:
   push:
-    branches: [feat/lidc-phase0]
+    branches: [main, feat/lidc-phase0]
     paths:
       - "web/**"
       - "scripts/sync_showcase_qc_assets.py"
