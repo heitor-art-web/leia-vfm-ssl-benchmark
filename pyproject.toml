@@ -27,7 +27,7 @@ lidc = [
   "huggingface_hub>=0.25",
 ]
 yolo = [
-  "ultralytics",
+  "ultralytics==8.4.163",
 ]
 dev = [
   "pytest>=8.0",
