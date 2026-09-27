@@ -16,17 +16,110 @@ imgsz    512
 batch    8
 workers  8
 epochs   100
+cls_pw   1.0
 ```
 
-The labelled training cohort is the exact frozen `seed1337/001pct` patient subset already versioned in `splits/lidc/v1/manifest.json`. The complete frozen validation cohort is used for evaluation.
+The labelled training cohort is the exact frozen `seed1337/001pct` patient subset already versioned in `splits/lidc/v1/manifest.json`. The complete frozen validation cohort is used only after training and the train-only sanity gate described below.
+
+## Training-only target profile
+
+Before any validation/test metrics were inspected, the frozen **labelled TRAIN subset only** was profiled from the pinned annotation-count masks. The resulting evidence is versioned in:
+
+```text
+experiments/lidc_sup_seed1337_001pct_target_profile.json
+```
+
+It contains:
+
+```text
+7 patients / 7 scans
+2346 slices total
+28 slices with trusted foreground          1.19%
+74 slices with UNKNOWN but no trusted fg   3.15%
+2244 pure-background slices               95.65%
+0 all-ignore slices
+
+trusted voxels    1,014 / 614,989,824   ~1.65e-6
+UNKNOWN voxels   11,586 / 614,989,824   ~1.88e-5
+```
+
+Only three of the seven labelled patients contain any `>=3`-vote trusted foreground under the frozen target policy. This is a property of the already-frozen target-blind 1% patient subset, not a post-hoc resampling choice.
+
+The profile deliberately does not open validation or test masks.
+
+## Foreground imbalance policy
+
+Ultralytics semantic segmentation supports training-pixel class weights through `cls_pw`. The v1 supervised baseline freezes:
+
+```text
+cls_pw = 1.0
+```
+
+At this setting the pinned semantic trainer applies its full ENet-style inverse-log pixel-frequency weighting computed **only from the labelled TRAIN masks**. The Dice term remains part of the pinned semantic loss.
+
+The v1 baseline does **not** introduce a custom positive-slice sampler. Every exported labelled training slice remains eligible in the standard shuffled training loader. Slice oversampling, if studied later, is an explicit ablation rather than an undocumented baseline change.
+
+## 2.5D-safe augmentation policy
+
+The three input channels are adjacent CT slices, not natural-image RGB channels. Natural-image color transforms and cross-image mosaics would therefore alter the meaning of the 2.5D representation.
+
+The first baseline freezes the following augmentation policy:
+
+```text
+hsv_h       0.0
+hsv_s       0.0
+hsv_v       0.0
+bgr         0.0
+mosaic      0.0
+mixup       0.0
+cutmix      0.0
+copy_paste  0.0
+
+rotation    +/- 5 degrees
+translate   0.05
+scale       +/- 0.10
+horizontal flip probability 0.5
+vertical flip               0.0
+shear                       0.0
+perspective                 0.0
+```
+
+Spatial transforms are applied jointly to the three CT channels and the semantic target. This exact labelled-stream augmentation policy must also be used by the comparable MT and MT+MedSAM arms.
+
+## Verified ignore-label contract
+
+The benchmark relies on target value `255` being excluded from the training loss. A version-pinned executable contract test now checks `ultralytics==8.4.163` directly before benchmark training.
+
+For the pinned semantic loss:
+
+- the dataset has two explicit classes (`0=background`, `1=pulmonary_nodule`);
+- multi-class cross-entropy is configured with `ignore_index=255`;
+- Dice filters the same invalid pixels;
+- changing logits only at an ignored pixel leaves the loss unchanged;
+- a synthetic all-ignore batch remains finite.
+
+This closes the earlier implementation uncertainty around whether `255` actually behaves as the benchmark's intended UNKNOWN/ignore label.
 
 ## Checkpoint rule
 
 The v1 supervised baseline uses a **fixed final-epoch checkpoint**.
 
-Held-out validation is disabled during the training epochs. After epoch 100, `last.pt` is evaluated exactly once on the complete frozen validation split. This avoids repeatedly inspecting the held-out cohort and avoids paying the very large cost of evaluating all validation slices after every training epoch.
+Held-out validation is disabled during the training epochs. After epoch 100, `last.pt` is selected without consulting validation performance.
 
 The same supervised schedule and checkpoint-selection rule must be held constant for the comparable Mean Teacher and Mean Teacher + MedSAM arms unless a deviation is preregistered before seeing their final validation results.
+
+## Train-only degeneration gate
+
+Before opening the held-out validation metrics, the final checkpoint is evaluated once on the labelled TRAIN subset.
+
+The run aborts without evaluating validation if either is true:
+
+```text
+predicted foreground pixels on TRAIN == 0
+true-positive overlap on TRAIN == 0
+```
+
+This is not a model-selection criterion and does not set a performance threshold. It is only a software/scientific sanity gate to prevent a completely collapsed model from triggering inspection of held-out results. The gate uses no validation or test labels.
 
 ## Metrics
 
@@ -51,6 +144,21 @@ A patient/case with no positive reference pixels and no positive prediction has 
 
 Lesion-level sensitivity/FROC and HD95 remain planned secondary analyses and will be added without changing the primary Dice/IoU definitions.
 
+## Run provenance
+
+`run.json` records:
+
+- Git revision;
+- exact split-manifest SHA-256;
+- exported dataset provenance SHA-256;
+- Python/platform information;
+- Ultralytics/PyTorch/NumPy/NiBabel versions;
+- CUDA/cuDNN visibility and GPU device names;
+- frozen training/augmentation policy;
+- final checkpoint and metric-file SHA-256 hashes.
+
+For `SUP / seed1337 / 001pct`, the runner refuses accidental deviations from the frozen schedule unless `--allow-protocol-override` is supplied explicitly. An override is not the registered baseline and must be documented separately.
+
 ## Reproducible command
 
 ```bash
@@ -64,7 +172,22 @@ python scripts/run_lidc_sup_budget.py \
   --batch 8 \
   --eval-batch 16 \
   --workers 8 \
+  --cls-pw 1.0 \
+  --degrees 5 \
+  --translate 0.05 \
+  --scale 0.10 \
+  --fliplr 0.5 \
   --device 0
 ```
 
-The run writes `run.json`, the final checkpoint under `training/`, and `metrics.json` under the chosen results directory.
+The run writes `run.json`, the final checkpoint under `training/`, `train_metrics.json` for the train-only sanity gate, and `metrics.json` for the frozen validation evaluation.
+
+## Zero-cost preflight
+
+The public repository includes `.github/workflows/sup-1pct-free-preflight.yml`. It uses only standard GitHub-hosted runners on this public repository and performs three non-scientific checks:
+
+1. verifies the exact pinned Ultralytics `255` ignore contract;
+2. regenerates the TRAIN-only target profile without opening validation/test masks;
+3. exports the complete seven-patient labelled TRAIN subset and runs one CPU epoch at `512` resolution to catch memory, data-loader, loss and checkpoint failures.
+
+The one-epoch CPU output is explicitly integration/resource evidence and must never be reported as benchmark performance.
