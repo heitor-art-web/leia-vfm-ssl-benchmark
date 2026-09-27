@@ -35,8 +35,10 @@ def parse_args() -> argparse.Namespace:
         "--val-during-training",
         action="store_true",
         help=(
-            "Run held-out validation inside each training epoch. The frozen benchmark default is off: "
-            "train for a fixed number of epochs, then evaluate the final checkpoint once."
+            "Run the YAML's internal validation split on intermediate epochs as well. In Ultralytics 8.4.163, "
+            "the final epoch and final_eval still validate even when this flag is off. The benchmark runner "
+            "therefore supplies a TRAIN-only alias as the trainer's val entry and keeps the true held-out split "
+            "for the external evaluator."
         ),
     )
     return parser.parse_args()
