@@ -10,6 +10,8 @@ import subprocess
 import sys
 import time
 
+import yaml
+
 FROZEN_FIRST_RUN = {
     "seed": 1337,
     "budget": "001pct",
@@ -154,6 +156,29 @@ def _enforce_first_run_protocol(args: argparse.Namespace) -> None:
         )
 
 
+def _write_train_only_trainer_yaml(dataset_dir: Path) -> Path:
+    """Write a trainer YAML whose internal validation can only see TRAIN.
+
+    Ultralytics 8.4.163 performs validation on the final epoch even when `val=False`, and then
+    calls `final_eval()`. The scientific held-out validation must therefore never be supplied
+    to the internal trainer. We alias `val` to `train` here and reserve the real frozen val
+    split for our external evaluator after the train-only degeneration gate.
+    """
+
+    source = dataset_dir / "dataset.yaml"
+    if not source.exists():
+        raise FileNotFoundError(source)
+    payload = yaml.safe_load(source.read_text(encoding="utf-8"))
+    train_value = payload.get("train")
+    if not train_value:
+        raise RuntimeError(f"training dataset YAML has no train entry: {source}")
+    payload["val"] = train_value
+    payload.pop("test", None)
+    target = dataset_dir / "dataset_trainer_train_only.yaml"
+    target.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    return target
+
+
 def main() -> None:
     args = parse_args()
     _enforce_first_run_protocol(args)
@@ -168,7 +193,7 @@ def main() -> None:
 
     started = time.time()
     metadata = {
-        "schema_version": 3,
+        "schema_version": 4,
         "arm": "SUP",
         "seed": args.seed,
         "budget": args.budget,
@@ -202,7 +227,11 @@ def main() -> None:
         "dataset_dir": str(dataset_dir.resolve()),
         "results_dir": str(results_dir.resolve()),
         "run_name": run_name,
-        "checkpoint_rule": "fixed final epoch; no held-out validation during training",
+        "checkpoint_rule": "fixed final epoch last.pt; no held-out metric is used for checkpoint selection",
+        "trainer_internal_validation": (
+            "TRAIN alias only. Ultralytics 8.4.163 always validates the final epoch and runs final_eval, "
+            "so the internal trainer is never given the frozen held-out validation path."
+        ),
         "heldout_gate": (
             "evaluate final checkpoint on labelled TRAIN first; if zero predicted foreground or zero true-positive "
             "overlap, abort before opening validation metrics"
@@ -262,12 +291,16 @@ def main() -> None:
             )
             metadata["ultralytics_semantic_contract"] = "verified"
 
+            trainer_yaml = _write_train_only_trainer_yaml(dataset_dir)
+            metadata["trainer_dataset_yaml"] = str(trainer_yaml.resolve())
+            metadata["trainer_dataset_yaml_sha256"] = _sha256(trainer_yaml)
+
             _run(
                 [
                     sys.executable,
                     "scripts/train_yolo26_sem_supervised.py",
                     "--data",
-                    str(dataset_dir / "dataset.yaml"),
+                    str(trainer_yaml),
                     "--model",
                     args.model,
                     "--epochs",
