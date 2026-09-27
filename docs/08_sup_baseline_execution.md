@@ -84,11 +84,13 @@ shear                       0.0
 perspective                 0.0
 ```
 
-Spatial transforms are applied jointly to the three CT channels and the semantic target. This exact labelled-stream augmentation policy must also be used by the comparable MT and MT+MedSAM arms.
+Spatial transforms are applied jointly to the three CT channels and the semantic target. The pinned augmentation contract is executable: semantic affine transforms use nearest-neighbor interpolation, newly introduced border support is set to `255` rather than false background, and horizontal flips transform the semantic target exactly.
+
+This exact labelled-stream augmentation policy must also be used by the comparable MT and MT+MedSAM arms.
 
 ## Verified ignore-label contract
 
-The benchmark relies on target value `255` being excluded from the training loss. A version-pinned executable contract test now checks `ultralytics==8.4.163` directly before benchmark training.
+The benchmark relies on target value `255` being excluded from the training loss. Version-pinned executable contract tests now check `ultralytics==8.4.163` directly before benchmark training.
 
 For the pinned semantic loss:
 
@@ -98,21 +100,39 @@ For the pinned semantic loss:
 - changing logits only at an ignored pixel leaves the loss unchanged;
 - a synthetic all-ignore batch remains finite.
 
-This closes the earlier implementation uncertainty around whether `255` actually behaves as the benchmark's intended UNKNOWN/ignore label.
+For the pinned semantic spatial transforms:
 
-## Checkpoint rule
+- affine mask interpolation is nearest-neighbor;
+- affine border pixels are `255` (UNKNOWN/ignore), not background;
+- trusted and UNKNOWN class ids remain discrete;
+- horizontal flips transform image and target in the same spatial direction.
 
-The v1 supervised baseline uses a **fixed final-epoch checkpoint**.
+This closes the earlier implementation uncertainty around whether `255` behaves as the benchmark's intended UNKNOWN/ignore label in both loss and the frozen spatial augmentation path.
 
-Held-out validation is disabled during the training epochs. After epoch 100, `last.pt` is selected without consulting validation performance.
+## Checkpoint rule and strict held-out isolation
+
+The v1 supervised baseline uses a **fixed final-epoch checkpoint** (`last.pt`).
+
+An important pinned-library detail is handled explicitly: in Ultralytics `8.4.163`, the trainer validates on the final epoch even when `val=False`, and then executes `final_eval()`. Therefore merely setting `val=False` is **not sufficient** to keep held-out validation unseen during training.
+
+The benchmark runner writes a separate trainer-only dataset YAML in which:
+
+```text
+train = labelled TRAIN images
+val   = labelled TRAIN images
+```
+
+The real frozen validation split remains present in the exported benchmark dataset for the external evaluator, but its path is never supplied to the Ultralytics trainer. Consequently, any mandatory internal final-epoch/final evaluation can inspect **TRAIN only**.
+
+After epoch 100, `last.pt` is selected without consulting held-out validation performance. Internal `best.pt` is irrelevant to the registered benchmark and is never used for the scientific comparison.
 
 The same supervised schedule and checkpoint-selection rule must be held constant for the comparable Mean Teacher and Mean Teacher + MedSAM arms unless a deviation is preregistered before seeing their final validation results.
 
 ## Train-only degeneration gate
 
-Before opening the held-out validation metrics, the final checkpoint is evaluated once on the labelled TRAIN subset.
+Before opening the held-out validation metrics, the final checkpoint is evaluated once on the labelled TRAIN subset by the benchmark's external evaluator.
 
-The run aborts without evaluating validation if either is true:
+The run aborts without evaluating the real frozen validation split if either is true:
 
 ```text
 predicted foreground pixels on TRAIN == 0
@@ -120,6 +140,8 @@ true-positive overlap on TRAIN == 0
 ```
 
 This is not a model-selection criterion and does not set a performance threshold. It is only a software/scientific sanity gate to prevent a completely collapsed model from triggering inspection of held-out results. The gate uses no validation or test labels.
+
+Only after this gate passes does the external evaluator open the frozen validation masks and write `metrics.json`.
 
 ## Metrics
 
@@ -151,6 +173,7 @@ Lesion-level sensitivity/FROC and HD95 remain planned secondary analyses and wil
 - Git revision;
 - exact split-manifest SHA-256;
 - exported dataset provenance SHA-256;
+- trainer-only YAML SHA-256;
 - Python/platform information;
 - Ultralytics/PyTorch/NumPy/NiBabel versions;
 - CUDA/cuDNN visibility and GPU device names;
@@ -180,14 +203,16 @@ python scripts/run_lidc_sup_budget.py \
   --device 0
 ```
 
-The run writes `run.json`, the final checkpoint under `training/`, `train_metrics.json` for the train-only sanity gate, and `metrics.json` for the frozen validation evaluation.
+The run writes `run.json`, the final checkpoint under `training/`, `train_metrics.json` for the train-only sanity gate, and `metrics.json` for the first external frozen-validation evaluation.
 
 ## Zero-cost preflight
 
-The public repository includes `.github/workflows/sup-1pct-free-preflight.yml`. It uses only standard GitHub-hosted runners on this public repository and performs three non-scientific checks:
+The public repository includes `.github/workflows/sup-1pct-free-preflight.yml`. It uses standard GitHub-hosted runners on this public repository and performs three non-scientific checks:
 
-1. verifies the exact pinned Ultralytics `255` ignore contract;
+1. verifies the exact pinned Ultralytics `255` loss and spatial-augmentation contracts;
 2. regenerates the TRAIN-only target profile without opening validation/test masks;
 3. exports the complete seven-patient labelled TRAIN subset and runs one CPU epoch at `512` resolution to catch memory, data-loader, loss and checkpoint failures.
+
+The preflight exports **no held-out data**. Because Ultralytics still performs mandatory final internal validation, the preflight YAML aliases `val` to TRAIN. Any internal validation therefore remains TRAIN-only.
 
 The one-epoch CPU output is explicitly integration/resource evidence and must never be reported as benchmark performance.
