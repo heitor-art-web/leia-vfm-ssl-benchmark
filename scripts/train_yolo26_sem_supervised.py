@@ -13,10 +13,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--imgsz", type=int, default=512)
     parser.add_argument("--batch", type=int, default=8)
+    parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--device", default=None)
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--project", default="runs/lidc_yolo26_sem")
     parser.add_argument("--name", default="sup")
+    parser.add_argument(
+        "--val-during-training",
+        action="store_true",
+        help=(
+            "Run held-out validation inside each training epoch. The frozen benchmark default is off: "
+            "train for a fixed number of epochs, then evaluate the final checkpoint once."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -31,10 +40,13 @@ def main() -> None:
         "epochs": args.epochs,
         "imgsz": args.imgsz,
         "batch": args.batch,
+        "workers": args.workers,
         "seed": args.seed,
         "deterministic": True,
         "project": args.project,
         "name": args.name,
+        "val": args.val_during_training,
+        "plots": False,
     }
     if args.device is not None:
         kwargs["device"] = args.device
