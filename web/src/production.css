@@ -1,0 +1,273 @@
+/* Production presentation pass: interaction, accessibility and responsive polish. */
+
+:focus-visible {
+  outline: 2px solid #7da8ff;
+  outline-offset: 3px;
+}
+
+.header-side {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.header-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid #2b405b;
+  border-radius: 10px;
+  background: rgba(12, 23, 38, .72);
+  color: #a9c3f5;
+  font-size: 11px;
+  font-weight: 750;
+  text-decoration: none;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+
+.header-links a:hover {
+  border-color: #4f79b4;
+  background: #10223a;
+  color: #fff;
+}
+
+.milestone-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 6px;
+}
+
+.milestone {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid #243a55;
+  border-radius: 9px;
+  background: #091725;
+  color: #aebed2 !important;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.milestone.complete {
+  border-color: #1f6b48;
+  color: #75e5a2 !important;
+  background: #0a2119;
+}
+
+.milestone.next {
+  border-color: #315f9b;
+  color: #9abbff !important;
+  background: #0c203b;
+}
+
+.viewer-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #07111d;
+  overflow-x: auto;
+}
+
+.viewer-mode-bar button {
+  flex: 0 0 auto;
+  border: 1px solid #2a405b;
+  border-radius: 9px;
+  background: #0d1a29;
+  color: #aebdd0;
+  padding: 7px 11px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.viewer-mode-bar button:hover {
+  border-color: #46668e;
+  color: #fff;
+}
+
+.viewer-mode-bar button.active {
+  border-color: #4f8cff;
+  background: #15325d;
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(79, 140, 255, .18);
+}
+
+.viewer-mode-bar > span {
+  margin-left: auto;
+  min-width: max-content;
+  color: #71849e;
+  font-size: 10px;
+}
+
+.viewer-canvas-interactive {
+  min-height: 620px;
+  overflow: hidden;
+}
+
+.contact-quadrant {
+  position: relative;
+  width: min(100%, 780px);
+  aspect-ratio: 512 / 540;
+  overflow: hidden;
+  border: 1px solid #23364d;
+  border-radius: 10px;
+  background: #000;
+  box-shadow: 0 20px 70px rgba(0, 0, 0, .28);
+}
+
+.contact-quadrant img {
+  position: absolute;
+  width: 200%;
+  height: 200%;
+  max-width: none;
+  max-height: none;
+  object-fit: fill;
+  display: block;
+  border-radius: 0;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.contact-quadrant-ct img {
+  left: 0;
+  top: 0;
+}
+
+.contact-quadrant-mask img {
+  left: -100%;
+  top: 0;
+}
+
+.contact-quadrant-overlay img {
+  left: 0;
+  top: -100%;
+}
+
+.contact-quadrant-crop img {
+  left: -100%;
+  top: -100%;
+}
+
+.viewer-evidence-note {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 10px 15px;
+  border-top: 1px solid #14243a;
+  background: #07111d;
+  color: #7f91a8;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.viewer-evidence-note strong {
+  flex: 0 0 auto;
+  color: #adbed3;
+}
+
+@media (max-width: 1050px) {
+  .header-side {
+    align-items: flex-start;
+    flex-direction: column-reverse;
+  }
+}
+
+@media (max-width: 760px) {
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: rgba(6, 14, 25, .97);
+    backdrop-filter: blur(14px);
+  }
+
+  .page-header {
+    display: grid;
+    gap: 14px;
+  }
+
+  .header-side {
+    display: block;
+  }
+
+  .header-links {
+    width: 100%;
+  }
+
+  .header-links a {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .hero {
+    padding: 22px;
+  }
+
+  .hero-actions {
+    flex-direction: column;
+  }
+
+  .hero-actions button {
+    width: 100%;
+  }
+
+  .viewer-mode-bar {
+    padding: 9px 10px;
+  }
+
+  .viewer-mode-bar > span {
+    display: none;
+  }
+
+  .viewer-canvas-interactive {
+    min-height: 0;
+    padding: 10px;
+  }
+
+  .contact-quadrant {
+    width: 100%;
+  }
+
+  .viewer-evidence-note {
+    display: grid;
+    gap: 3px;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav-item {
+    padding: 8px 9px;
+    font-size: 11px;
+  }
+
+  .viewer-case-list {
+    grid-template-columns: 1fr;
+  }
+
+  .viewer-toolbar {
+    display: grid;
+  }
+
+  .viewer-meta {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .viewer-footer {
+    display: grid;
+    gap: 8px;
+  }
+}

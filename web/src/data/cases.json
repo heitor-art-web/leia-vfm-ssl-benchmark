@@ -8,6 +8,7 @@
     "annotationVotes": 0,
     "diameterMm": null,
     "malignancyMedian": null,
+    "sliceIndex": null,
     "assets": { "contactSheet": "/lidc/LIDC-IDRI-0028_7298352671/contact_sheet.webp" }
   },
   {
@@ -19,6 +20,7 @@
     "annotationVotes": 3,
     "diameterMm": 7.44,
     "malignancyMedian": 4,
+    "sliceIndex": 267,
     "assets": { "contactSheet": "/lidc/LIDC-IDRI-0445_2444806008/contact_sheet.webp" }
   },
   {
@@ -30,6 +32,7 @@
     "annotationVotes": 4,
     "diameterMm": 16.87,
     "malignancyMedian": 4,
+    "sliceIndex": 48,
     "assets": { "contactSheet": "/lidc/LIDC-IDRI-0260_8774929286/contact_sheet.webp" }
   },
   {
@@ -41,6 +44,7 @@
     "annotationVotes": 3,
     "diameterMm": 23.94,
     "malignancyMedian": 5,
+    "sliceIndex": 96,
     "assets": { "contactSheet": "/lidc/LIDC-IDRI-0081_4757844726/contact_sheet.webp" }
   },
   {
@@ -52,6 +56,7 @@
     "annotationVotes": 4,
     "diameterMm": 44.6,
     "malignancyMedian": 5,
+    "sliceIndex": 86,
     "assets": { "contactSheet": "/lidc/LIDC-IDRI-0191_4646251928/contact_sheet.webp" }
   },
   {
@@ -63,6 +68,7 @@
     "annotationVotes": 1,
     "diameterMm": 6.72,
     "malignancyMedian": null,
+    "sliceIndex": 77,
     "assets": { "contactSheet": "/lidc/LIDC-IDRI-0173_5464313394/contact_sheet.webp" }
   },
   {
@@ -74,6 +80,7 @@
     "annotationVotes": 2,
     "diameterMm": 7.55,
     "malignancyMedian": null,
+    "sliceIndex": 95,
     "assets": { "contactSheet": "/lidc/LIDC-IDRI-0483_7530734559/contact_sheet.webp" }
   }
 ]

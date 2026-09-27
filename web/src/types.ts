@@ -15,6 +15,7 @@ export interface CaseRecord {
   annotationVotes: number;
   diameterMm: number | null;
   malignancyMedian: number | null;
+  sliceIndex: number | null;
   assets: {
     contactSheet: string;
   };
