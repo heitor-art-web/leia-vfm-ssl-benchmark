@@ -171,6 +171,30 @@ jobs:
         run: |
           python scripts/verify_yolo_training_artifacts.py \
             --run-dir "$RUNNER_TEMP/preflight/sup_seed1337_001pct_cpu_preflight"
+      - name: Smoke test external evaluator on 16 TRAIN slices
+        run: |
+          python scripts/evaluate_lidc_semantic.py \
+            --dataset "$RUNNER_TEMP/lidc_seed1337_001pct" \
+            --checkpoint "$RUNNER_TEMP/preflight/sup_seed1337_001pct_cpu_preflight/weights/last.pt" \
+            --split train \
+            --output "$RUNNER_TEMP/preflight/evaluator_smoke.json" \
+            --imgsz 512 \
+            --batch 8 \
+            --device cpu \
+            --max-slices 16
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["RUNNER_TEMP"]) / "preflight" / "evaluator_smoke.json"
+          payload = json.loads(path.read_text())
+          if payload.get("scientific_result_eligible") is not False:
+              raise SystemExit("limited evaluator smoke must be explicitly non-scientific")
+          if payload.get("evaluation_scope") != "debug_prefix":
+              raise SystemExit("limited evaluator smoke has wrong scope marker")
+          print("External evaluator interface smoke passed and is marked non-scientific.")
+          PY
       - name: Record compact preflight evidence
         run: |
           cp "$RUNNER_TEMP/preflight/sup_seed1337_001pct_cpu_preflight/results.csv" "$RUNNER_TEMP/preflight/results.csv"
@@ -181,6 +205,7 @@ jobs:
             echo "Git commit: $GITHUB_SHA"
             echo "Runner: $RUNNER_OS / standard public GitHub-hosted runner"
             echo "Internal final validation: TRAIN alias only; no held-out split is present"
+            echo "External evaluator smoke: first 16 TRAIN manifest rows only; non-scientific"
             echo
             cat "$RUNNER_TEMP/preflight/time.txt"
             echo
@@ -193,4 +218,5 @@ jobs:
             ${{ runner.temp }}/preflight/PREFLIGHT.txt
             ${{ runner.temp }}/preflight/results.csv
             ${{ runner.temp }}/preflight/args.yaml
+            ${{ runner.temp }}/preflight/evaluator_smoke.json
           retention-days: 1
