@@ -63,7 +63,18 @@ jobs:
             --output "$RUNNER_TEMP/target_profile.json" \
             --cache-dir "$RUNNER_TEMP/hf-profile-cache"
       - name: Compare profile with versioned preregistration evidence
-        run: diff -u experiments/lidc_sup_seed1337_001pct_target_profile.json "$RUNNER_TEMP/target_profile.json"
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          expected = json.loads(Path("experiments/lidc_sup_seed1337_001pct_target_profile.json").read_text())
+          actual = json.loads((Path(os.environ["RUNNER_TEMP"]) / "target_profile.json").read_text())
+          if actual != expected:
+              raise SystemExit("regenerated TRAIN-only target profile differs from versioned evidence")
+          print("TRAIN-only target profile exactly matches versioned evidence.")
+          PY
       - name: Show target profile
         run: cat "$RUNNER_TEMP/target_profile.json"
       - uses: actions/upload-artifact@v4
@@ -119,10 +130,12 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import os
           import yaml
 
-          source = Path("${{ runner.temp }}/lidc_seed1337_001pct/dataset.yaml")
-          target = Path("${{ runner.temp }}/lidc_seed1337_001pct/dataset_preflight.yaml")
+          root = Path(os.environ["RUNNER_TEMP"]) / "lidc_seed1337_001pct"
+          source = root / "dataset.yaml"
+          target = root / "dataset_preflight.yaml"
           data = yaml.safe_load(source.read_text(encoding="utf-8"))
           # Ultralytics syntactically requires a val key even with val=False. For this
           # TRAIN-only integration check, alias val to train; no held-out data are exported
