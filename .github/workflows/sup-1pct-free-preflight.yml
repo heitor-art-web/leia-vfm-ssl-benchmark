@@ -8,6 +8,7 @@ on:
       - "pyproject.toml"
       - "scripts/profile_lidc_budget_targets.py"
       - "scripts/verify_ultralytics_semantic_contract.py"
+      - "scripts/verify_ultralytics_augmentation_contract.py"
       - "scripts/verify_yolo_training_artifacts.py"
       - "scripts/check_lidc_train_sanity.py"
       - "scripts/export_lidc_mirror_benchmark.py"
@@ -41,6 +42,8 @@ jobs:
           python -m pip install "ultralytics==8.4.163"
       - name: Verify target-255 loss contract
         run: python scripts/verify_ultralytics_semantic_contract.py --expected-version 8.4.163
+      - name: Verify semantic augmentation contract
+        run: python scripts/verify_ultralytics_augmentation_contract.py --expected-version 8.4.163
 
   train-target-profile:
     runs-on: ubuntu-latest
@@ -107,13 +110,16 @@ jobs:
           python -m compileall -q \
             scripts/profile_lidc_budget_targets.py \
             scripts/verify_ultralytics_semantic_contract.py \
+            scripts/verify_ultralytics_augmentation_contract.py \
             scripts/verify_yolo_training_artifacts.py \
             scripts/check_lidc_train_sanity.py \
             scripts/evaluate_lidc_semantic.py \
             scripts/run_lidc_sup_budget.py \
             scripts/train_yolo26_sem_supervised.py
-      - name: Verify exact pinned semantic loss contract
-        run: python scripts/verify_ultralytics_semantic_contract.py --expected-version 8.4.163
+      - name: Verify exact pinned semantic contracts
+        run: |
+          python scripts/verify_ultralytics_semantic_contract.py --expected-version 8.4.163
+          python scripts/verify_ultralytics_augmentation_contract.py --expected-version 8.4.163
       - name: Export the complete labelled 1% TRAIN subset only
         run: |
           python scripts/export_lidc_mirror_benchmark.py \
@@ -126,7 +132,7 @@ jobs:
           python scripts/validate_lidc_export.py \
             --dataset "$RUNNER_TEMP/lidc_seed1337_001pct" \
             --splits train
-      - name: Build trainer-only YAML without opening held-out labels
+      - name: Build trainer-only YAML without held-out data
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -137,9 +143,9 @@ jobs:
           source = root / "dataset.yaml"
           target = root / "dataset_preflight.yaml"
           data = yaml.safe_load(source.read_text(encoding="utf-8"))
-          # Ultralytics syntactically requires a val key even with val=False. For this
-          # TRAIN-only integration check, alias val to train; no held-out data are exported
-          # and no validation pass is executed.
+          # Ultralytics 8.4.163 validates on the final epoch and runs final_eval even
+          # with val=False. The preflight therefore aliases val to TRAIN. No held-out
+          # data are exported into this job.
           data["val"] = data["train"]
           target.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
           print(target.read_text(encoding="utf-8"))
@@ -174,7 +180,7 @@ jobs:
             echo
             echo "Git commit: $GITHUB_SHA"
             echo "Runner: $RUNNER_OS / standard public GitHub-hosted runner"
-            echo "Validation: disabled; trainer val key aliases TRAIN only for Ultralytics syntax"
+            echo "Internal final validation: TRAIN alias only; no held-out split is present"
             echo
             cat "$RUNNER_TEMP/preflight/time.txt"
             echo
