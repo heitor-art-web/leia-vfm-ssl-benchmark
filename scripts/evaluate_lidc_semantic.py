@@ -33,6 +33,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--device", default="0")
     parser.add_argument("--hard-slices", type=int, default=20)
+    parser.add_argument(
+        "--max-slices",
+        type=int,
+        default=None,
+        help=(
+            "Evaluate only the first N manifest rows for software integration checks. "
+            "Outputs produced with this option are marked non-scientific and must not be reported as benchmark results."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -66,8 +75,13 @@ def main() -> None:
         raise FileNotFoundError(args.checkpoint)
     if args.batch < 1:
         raise SystemExit("--batch must be >= 1")
+    if args.max_slices is not None and args.max_slices < 1:
+        raise SystemExit("--max-slices must be >= 1")
 
-    rows = _read_manifest(args.dataset, args.split)
+    all_rows = _read_manifest(args.dataset, args.split)
+    rows = all_rows if args.max_slices is None else all_rows[: args.max_slices]
+    if not rows:
+        raise RuntimeError("evaluation row selection is empty")
 
     from ultralytics import YOLO
 
@@ -127,11 +141,15 @@ def main() -> None:
 
     fn_ranked = [record for _, _, record in sorted(hard_rows, key=lambda item: (item[0], item[1]), reverse=True)]
     fp_ranked = [record for _, _, record in sorted(hard_rows, key=lambda item: (item[1], item[0]), reverse=True)]
+    is_limited = args.max_slices is not None
 
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "task": "LIDC-IDRI pulmonary nodule semantic segmentation",
         "split": args.split,
+        "evaluation_scope": "debug_prefix" if is_limited else "full_split",
+        "scientific_result_eligible": not is_limited,
+        "max_slices": args.max_slices,
         "checkpoint": str(args.checkpoint.resolve()),
         "positive_class": 1,
         "ignore_label": 255,
@@ -148,6 +166,7 @@ def main() -> None:
             "patients": len(patient_counts),
             "cases": len(case_counts),
             "slices": len(rows),
+            "full_manifest_slices": len(all_rows),
         },
         "inference": {
             "imgsz": args.imgsz,
@@ -166,6 +185,8 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(json.dumps(payload, indent=2))
+    if is_limited:
+        print("WARNING: --max-slices was used; this output is an integration artifact, not a scientific benchmark result.")
     print(f"Metrics written to {args.output.resolve()}")
 
 
