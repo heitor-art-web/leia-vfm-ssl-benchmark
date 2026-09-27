@@ -28,10 +28,14 @@ export function Overview({ methods, policy, pipeline, onNavigate }: OverviewProp
         </div>
         <div className="hero-status">
           <p className="eyebrow">Current milestone</p>
-          <strong>Phase 0 data pipeline</strong>
-          <span>Frozen splits · annotation-vote targets · real-data smoke test</span>
-          <div className="progress-track"><div className="progress-fill" /></div>
-          <small>Next: full supervised 1% baseline</small>
+          <strong>Phase 0 complete</strong>
+          <span>Frozen data contract and real-data integration are ready for the first full supervised run.</span>
+          <div className="milestone-list" aria-label="Benchmark milestone status">
+            <span className="milestone complete">✓ Frozen patient splits</span>
+            <span className="milestone complete">✓ Annotation-vote targets</span>
+            <span className="milestone complete">✓ Real-data smoke run</span>
+            <span className="milestone next">→ Next: SUP 1% · seed 1337</span>
+          </div>
         </div>
       </section>
 
