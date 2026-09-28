@@ -1,4 +1,5 @@
 [
+  { "id": "intro", "label": "LEIA", "glyph": "L" },
   { "id": "overview", "label": "Overview", "glyph": "◫" },
   { "id": "cases", "label": "Cases", "glyph": "◎" },
   { "id": "viewer", "label": "Viewer", "glyph": "▣" },
