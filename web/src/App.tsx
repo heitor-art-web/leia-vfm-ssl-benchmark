@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import navigationJson from './data/navigation.json';
 import pagesJson from './data/pages.json';
+import introJson from './data/intro.json';
 import casesJson from './data/cases.json';
 import methodsJson from './data/methods.json';
 import policyJson from './data/annotation-policy.json';
@@ -17,6 +18,7 @@ import type {
 } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
+import { Intro, type IntroData } from './pages/Intro';
 import { Overview } from './pages/Overview';
 import { Cases } from './pages/Cases';
 import { Viewer } from './pages/Viewer';
@@ -25,6 +27,7 @@ import { Results } from './pages/Results';
 import { About } from './pages/About';
 
 const navigation = navigationJson as NavigationItem[];
+const intro = introJson as IntroData;
 const cases = casesJson as CaseRecord[];
 const methods = methodsJson as MethodRecord[];
 const policy = policyJson as AnnotationPolicyRow[];
@@ -34,7 +37,7 @@ const pages = pagesJson as Record<PageKey, { title: string; subtitle: string }>;
 
 function pageFromHash(): PageKey {
   const candidate = window.location.hash.replace('#/', '') as PageKey;
-  return navigation.some((item) => item.id === candidate) ? candidate : 'overview';
+  return navigation.some((item) => item.id === candidate) ? candidate : 'intro';
 }
 
 export default function App() {
@@ -63,7 +66,8 @@ export default function App() {
   };
 
   let content;
-  if (page === 'overview') content = <Overview methods={methods} policy={policy} pipeline={pipeline} onNavigate={navigate} />;
+  if (page === 'intro') content = <Intro data={intro} onNavigate={navigate} />;
+  else if (page === 'overview') content = <Overview methods={methods} policy={policy} pipeline={pipeline} onNavigate={navigate} />;
   else if (page === 'cases') content = <Cases cases={cases} onOpen={openCase} />;
   else if (page === 'viewer') content = <Viewer cases={cases} selected={selectedCase} onSelect={(record) => setSelectedCaseId(record.caseId)} />;
   else if (page === 'benchmark') content = <Benchmark data={benchmark} methods={methods} />;
