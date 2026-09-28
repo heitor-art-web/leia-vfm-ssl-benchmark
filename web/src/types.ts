@@ -1,4 +1,4 @@
-export type PageKey = 'overview' | 'cases' | 'viewer' | 'benchmark' | 'results' | 'about';
+export type PageKey = 'intro' | 'overview' | 'cases' | 'viewer' | 'benchmark' | 'results' | 'about';
 
 export interface NavigationItem {
   id: PageKey;
