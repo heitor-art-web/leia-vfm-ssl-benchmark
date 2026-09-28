@@ -28,16 +28,19 @@ env:
 jobs:
   semantic-contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install pinned Ultralytics
-        run: pip install --disable-pip-version-check --no-cache-dir ultralytics==8.4.163
+      - name: Fetch exact upstream semantic loss source
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/ultralytics/ultralytics/v8.4.163/ultralytics/utils/loss.py \
+            -o /tmp/ultralytics-loss.py
       - name: Verify ignore-label contract
-        run: python scripts/check_ultralytics_semantic_contract.py
+        run: python scripts/check_ultralytics_semantic_contract.py --source /tmp/ultralytics-loss.py
 
   frozen-matrix-plans:
     runs-on: ubuntu-latest
