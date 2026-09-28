@@ -1,0 +1,222 @@
+name: sup-1pct-free-preflight
+
+on:
+  push:
+    branches: [feat/free-sup-hardening]
+    paths:
+      - ".github/workflows/sup-1pct-free-preflight.yml"
+      - "pyproject.toml"
+      - "scripts/profile_lidc_budget_targets.py"
+      - "scripts/verify_ultralytics_semantic_contract.py"
+      - "scripts/verify_ultralytics_augmentation_contract.py"
+      - "scripts/verify_yolo_training_artifacts.py"
+      - "scripts/check_lidc_train_sanity.py"
+      - "scripts/export_lidc_mirror_benchmark.py"
+      - "scripts/validate_lidc_export.py"
+      - "scripts/train_yolo26_sem_supervised.py"
+      - "scripts/evaluate_lidc_semantic.py"
+      - "scripts/run_lidc_sup_budget.py"
+      - "src/leia_benchmark/**"
+      - "splits/lidc/v1/**"
+      - "experiments/lidc_sup_seed1337_001pct_target_profile.json"
+      - "docs/08_sup_baseline_execution.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned CPU semantic stack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.14.0" "torchvision==0.29.0"
+          python -m pip install "ultralytics==8.4.163"
+      - name: Verify target-255 loss contract
+        run: python scripts/verify_ultralytics_semantic_contract.py --expected-version 8.4.163
+      - name: Verify semantic augmentation contract
+        run: python scripts/verify_ultralytics_augmentation_contract.py --expected-version 8.4.163
+
+  train-target-profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install lightweight target-profile dependencies
+        run: python -m pip install "numpy>=1.26" "nibabel>=5.2" "huggingface_hub>=0.25"
+      - name: Profile frozen seed1337 1% TRAIN targets only
+        env:
+          PYTHONPATH: src
+        run: |
+          python scripts/profile_lidc_budget_targets.py \
+            --seed 1337 \
+            --budget 001pct \
+            --output "$RUNNER_TEMP/target_profile.json" \
+            --cache-dir "$RUNNER_TEMP/hf-profile-cache"
+      - name: Compare profile with versioned preregistration evidence
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          expected = json.loads(Path("experiments/lidc_sup_seed1337_001pct_target_profile.json").read_text())
+          actual = json.loads((Path(os.environ["RUNNER_TEMP"]) / "target_profile.json").read_text())
+          if actual != expected:
+              raise SystemExit("regenerated TRAIN-only target profile differs from versioned evidence")
+          print("TRAIN-only target profile exactly matches versioned evidence.")
+          PY
+      - name: Show target profile
+        run: cat "$RUNNER_TEMP/target_profile.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sup-seed1337-001pct-target-profile
+          path: ${{ runner.temp }}/target_profile.json
+          retention-days: 1
+
+  one-epoch-cpu-preflight:
+    needs: [semantic-contract, train-target-profile]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned CPU benchmark dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.14.0" "torchvision==0.29.0"
+          python -m pip install -e ".[lidc,yolo]"
+      - name: Compile SUP hardening scripts
+        run: |
+          python -m compileall -q \
+            scripts/profile_lidc_budget_targets.py \
+            scripts/verify_ultralytics_semantic_contract.py \
+            scripts/verify_ultralytics_augmentation_contract.py \
+            scripts/verify_yolo_training_artifacts.py \
+            scripts/check_lidc_train_sanity.py \
+            scripts/evaluate_lidc_semantic.py \
+            scripts/run_lidc_sup_budget.py \
+            scripts/train_yolo26_sem_supervised.py
+      - name: Verify exact pinned semantic contracts
+        run: |
+          python scripts/verify_ultralytics_semantic_contract.py --expected-version 8.4.163
+          python scripts/verify_ultralytics_augmentation_contract.py --expected-version 8.4.163
+      - name: Export the complete labelled 1% TRAIN subset only
+        run: |
+          python scripts/export_lidc_mirror_benchmark.py \
+            --output "$RUNNER_TEMP/lidc_seed1337_001pct" \
+            --seed 1337 \
+            --budget 001pct \
+            --splits train
+      - name: Validate exported TRAIN data
+        run: |
+          python scripts/validate_lidc_export.py \
+            --dataset "$RUNNER_TEMP/lidc_seed1337_001pct" \
+            --splits train
+      - name: Build trainer-only YAML without held-out data
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import yaml
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "lidc_seed1337_001pct"
+          source = root / "dataset.yaml"
+          target = root / "dataset_preflight.yaml"
+          data = yaml.safe_load(source.read_text(encoding="utf-8"))
+          # Ultralytics 8.4.163 validates on the final epoch and runs final_eval even
+          # with val=False. The preflight therefore aliases val to TRAIN. No held-out
+          # data are exported into this job.
+          data["val"] = data["train"]
+          target.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+          print(target.read_text(encoding="utf-8"))
+          PY
+      - name: Report disk before training
+        run: df -h
+      - name: Run one exact-resolution CPU integration epoch
+        run: |
+          mkdir -p "$RUNNER_TEMP/preflight"
+          /usr/bin/time -v -o "$RUNNER_TEMP/preflight/time.txt" \
+            python scripts/train_yolo26_sem_supervised.py \
+              --data "$RUNNER_TEMP/lidc_seed1337_001pct/dataset_preflight.yaml" \
+              --model yolo26n-sem.pt \
+              --epochs 1 \
+              --imgsz 512 \
+              --batch 8 \
+              --workers 2 \
+              --device cpu \
+              --seed 1337 \
+              --project "$RUNNER_TEMP/preflight" \
+              --name sup_seed1337_001pct_cpu_preflight
+      - name: Verify finite training outputs
+        run: |
+          python scripts/verify_yolo_training_artifacts.py \
+            --run-dir "$RUNNER_TEMP/preflight/sup_seed1337_001pct_cpu_preflight"
+      - name: Smoke test external evaluator on 16 TRAIN slices
+        run: |
+          python scripts/evaluate_lidc_semantic.py \
+            --dataset "$RUNNER_TEMP/lidc_seed1337_001pct" \
+            --checkpoint "$RUNNER_TEMP/preflight/sup_seed1337_001pct_cpu_preflight/weights/last.pt" \
+            --split train \
+            --output "$RUNNER_TEMP/preflight/evaluator_smoke.json" \
+            --imgsz 512 \
+            --batch 8 \
+            --device cpu \
+            --max-slices 16
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["RUNNER_TEMP"]) / "preflight" / "evaluator_smoke.json"
+          payload = json.loads(path.read_text())
+          if payload.get("scientific_result_eligible") is not False:
+              raise SystemExit("limited evaluator smoke must be explicitly non-scientific")
+          if payload.get("evaluation_scope") != "debug_prefix":
+              raise SystemExit("limited evaluator smoke has wrong scope marker")
+          print("External evaluator interface smoke passed and is marked non-scientific.")
+          PY
+      - name: Record compact preflight evidence
+        run: |
+          cp "$RUNNER_TEMP/preflight/sup_seed1337_001pct_cpu_preflight/results.csv" "$RUNNER_TEMP/preflight/results.csv"
+          cp "$RUNNER_TEMP/preflight/sup_seed1337_001pct_cpu_preflight/args.yaml" "$RUNNER_TEMP/preflight/args.yaml"
+          {
+            echo "This is a software/resource preflight, not a scientific benchmark result."
+            echo
+            echo "Git commit: $GITHUB_SHA"
+            echo "Runner: $RUNNER_OS / standard public GitHub-hosted runner"
+            echo "Internal final validation: TRAIN alias only; no held-out split is present"
+            echo "External evaluator smoke: first 16 TRAIN manifest rows only; non-scientific"
+            echo
+            cat "$RUNNER_TEMP/preflight/time.txt"
+            echo
+            df -h
+          } > "$RUNNER_TEMP/preflight/PREFLIGHT.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sup-seed1337-001pct-cpu-preflight
+          path: |
+            ${{ runner.temp }}/preflight/PREFLIGHT.txt
+            ${{ runner.temp }}/preflight/results.csv
+            ${{ runner.temp }}/preflight/args.yaml
+            ${{ runner.temp }}/preflight/evaluator_smoke.json
+          retention-days: 1

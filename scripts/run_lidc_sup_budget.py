@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.metadata
 import json
 from pathlib import Path
 import platform
@@ -8,14 +10,30 @@ import subprocess
 import sys
 import time
 
+import yaml
+
+FROZEN_FIRST_RUN = {
+    "seed": 1337,
+    "budget": "001pct",
+    "model": "yolo26n-sem.pt",
+    "epochs": 100,
+    "imgsz": 512,
+    "batch": 8,
+    "workers": 8,
+    "cls_pw": 1.0,
+    "degrees": 5.0,
+    "translate": 0.05,
+    "scale": 0.10,
+    "fliplr": 0.5,
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Run one frozen supervised LIDC budget end to end: pinned export, integrity "
-            "validation, fixed-schedule YOLO26-sem training and one held-out evaluation "
-            "of the final checkpoint. Use --export-only to materialize and validate the "
-            "dataset without starting model training."
+            "validation, fixed-schedule YOLO26-sem training, a labelled-TRAIN degeneration "
+            "gate and one held-out evaluation of the final checkpoint."
         )
     )
     parser.add_argument("--workdir", type=Path, required=True)
@@ -37,8 +55,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch", type=int, default=8)
     parser.add_argument("--eval-batch", type=int, default=16)
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--cls-pw", type=float, default=1.0)
+    parser.add_argument("--degrees", type=float, default=5.0)
+    parser.add_argument("--translate", type=float, default=0.05)
+    parser.add_argument("--scale", type=float, default=0.10)
+    parser.add_argument("--fliplr", type=float, default=0.5)
     parser.add_argument("--device", default="0")
     parser.add_argument("--export-only", action="store_true")
+    parser.add_argument(
+        "--allow-protocol-override",
+        action="store_true",
+        help=(
+            "Permit deviations from the preregistered seed1337/001pct supervised baseline. "
+            "Without this flag, the first scientific baseline refuses schedule drift."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -56,18 +87,113 @@ def _git_revision() -> str | None:
         return None
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _package_version(name: str) -> str | None:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _runtime_metadata() -> dict[str, object]:
+    payload: dict[str, object] = {
+        "python": sys.version,
+        "platform": platform.platform(),
+        "packages": {
+            name: _package_version(name)
+            for name in ("ultralytics", "torch", "torchvision", "numpy", "nibabel", "Pillow")
+        },
+    }
+    try:
+        import torch
+
+        payload["torch_runtime"] = {
+            "cuda_available": bool(torch.cuda.is_available()),
+            "cuda_version": torch.version.cuda,
+            "cudnn_version": None if not torch.backends.cudnn.is_available() else torch.backends.cudnn.version(),
+            "device_count": int(torch.cuda.device_count()),
+            "devices": [torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())],
+        }
+    except Exception as exc:
+        payload["torch_runtime_error"] = f"{type(exc).__name__}: {exc}"
+    return payload
+
+
+def _enforce_first_run_protocol(args: argparse.Namespace) -> None:
+    if args.export_only or args.allow_protocol_override:
+        return
+    if args.seed != FROZEN_FIRST_RUN["seed"] or args.budget != FROZEN_FIRST_RUN["budget"]:
+        return
+    mismatches: list[str] = []
+    for key in (
+        "model",
+        "epochs",
+        "imgsz",
+        "batch",
+        "workers",
+        "cls_pw",
+        "degrees",
+        "translate",
+        "scale",
+        "fliplr",
+    ):
+        actual = getattr(args, key)
+        expected = FROZEN_FIRST_RUN[key]
+        if actual != expected:
+            mismatches.append(f"{key}: expected {expected!r}, got {actual!r}")
+    if mismatches:
+        detail = "; ".join(mismatches)
+        raise SystemExit(
+            "Refusing to drift from the preregistered SUP/seed1337/1% baseline: "
+            f"{detail}. Use --allow-protocol-override only for an explicitly documented non-baseline run."
+        )
+
+
+def _write_train_only_trainer_yaml(dataset_dir: Path) -> Path:
+    """Write a trainer YAML whose internal validation can only see TRAIN.
+
+    Ultralytics 8.4.163 performs validation on the final epoch even when `val=False`, and then
+    calls `final_eval()`. The scientific held-out validation must therefore never be supplied
+    to the internal trainer. We alias `val` to `train` here and reserve the real frozen val
+    split for our external evaluator after the train-only degeneration gate.
+    """
+
+    source = dataset_dir / "dataset.yaml"
+    if not source.exists():
+        raise FileNotFoundError(source)
+    payload = yaml.safe_load(source.read_text(encoding="utf-8"))
+    train_value = payload.get("train")
+    if not train_value:
+        raise RuntimeError(f"training dataset YAML has no train entry: {source}")
+    payload["val"] = train_value
+    payload.pop("test", None)
+    target = dataset_dir / "dataset_trainer_train_only.yaml"
+    target.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    return target
+
+
 def main() -> None:
     args = parse_args()
+    _enforce_first_run_protocol(args)
+
     args.workdir.mkdir(parents=True, exist_ok=True)
     dataset_dir = args.workdir / "datasets" / f"lidc_seed{args.seed}_{args.budget}"
     run_name = f"sup_seed{args.seed}_{args.budget}"
     results_dir = args.results_dir or (args.workdir / "results" / run_name)
     results_dir.mkdir(parents=True, exist_ok=True)
     training_project = results_dir / "training"
+    split_manifest = Path("splits/lidc/v1/manifest.json")
 
     started = time.time()
     metadata = {
-        "schema_version": 1,
+        "schema_version": 4,
         "arm": "SUP",
         "seed": args.seed,
         "budget": args.budget,
@@ -78,13 +204,43 @@ def main() -> None:
         "eval_batch": args.eval_batch,
         "workers": args.workers,
         "device": args.device,
+        "training_policy": {
+            "cls_pw": args.cls_pw,
+            "augmentation": {
+                "hsv_h": 0.0,
+                "hsv_s": 0.0,
+                "hsv_v": 0.0,
+                "bgr": 0.0,
+                "mosaic": 0.0,
+                "mixup": 0.0,
+                "cutmix": 0.0,
+                "copy_paste": 0.0,
+                "degrees": args.degrees,
+                "translate": args.translate,
+                "scale": args.scale,
+                "fliplr": args.fliplr,
+                "flipud": 0.0,
+                "shear": 0.0,
+                "perspective": 0.0,
+            },
+        },
         "dataset_dir": str(dataset_dir.resolve()),
         "results_dir": str(results_dir.resolve()),
         "run_name": run_name,
-        "checkpoint_rule": "fixed final epoch; no held-out validation during training",
+        "checkpoint_rule": "fixed final epoch last.pt; no held-out metric is used for checkpoint selection",
+        "trainer_internal_validation": (
+            "TRAIN alias only. Ultralytics 8.4.163 always validates the final epoch and runs final_eval, "
+            "so the internal trainer is never given the frozen held-out validation path."
+        ),
+        "heldout_gate": (
+            "evaluate final checkpoint on labelled TRAIN first; if zero predicted foreground or zero true-positive "
+            "overlap, abort before opening validation metrics"
+        ),
         "git_revision": _git_revision(),
-        "python": sys.version,
-        "platform": platform.platform(),
+        "split_manifest": str(split_manifest.resolve()),
+        "split_manifest_sha256": _sha256(split_manifest),
+        "runtime": _runtime_metadata(),
+        "protocol_override": bool(args.allow_protocol_override),
         "status": "started",
     }
     metadata_path = results_dir / "run.json"
@@ -117,6 +273,10 @@ def main() -> None:
                 "val",
             ]
         )
+        provenance_path = dataset_dir / "PROVENANCE.json"
+        if not provenance_path.exists():
+            raise FileNotFoundError(provenance_path)
+        metadata["dataset_provenance_sha256"] = _sha256(provenance_path)
 
         if args.export_only:
             metadata["status"] = "exported"
@@ -124,9 +284,23 @@ def main() -> None:
             _run(
                 [
                     sys.executable,
+                    "scripts/verify_ultralytics_semantic_contract.py",
+                    "--expected-version",
+                    "8.4.163",
+                ]
+            )
+            metadata["ultralytics_semantic_contract"] = "verified"
+
+            trainer_yaml = _write_train_only_trainer_yaml(dataset_dir)
+            metadata["trainer_dataset_yaml"] = str(trainer_yaml.resolve())
+            metadata["trainer_dataset_yaml_sha256"] = _sha256(trainer_yaml)
+
+            _run(
+                [
+                    sys.executable,
                     "scripts/train_yolo26_sem_supervised.py",
                     "--data",
-                    str(dataset_dir / "dataset.yaml"),
+                    str(trainer_yaml),
                     "--model",
                     args.model,
                     "--epochs",
@@ -137,6 +311,16 @@ def main() -> None:
                     str(args.batch),
                     "--workers",
                     str(args.workers),
+                    "--cls-pw",
+                    str(args.cls_pw),
+                    "--degrees",
+                    str(args.degrees),
+                    "--translate",
+                    str(args.translate),
+                    "--scale",
+                    str(args.scale),
+                    "--fliplr",
+                    str(args.fliplr),
                     "--device",
                     args.device,
                     "--seed",
@@ -153,6 +337,48 @@ def main() -> None:
                 raise FileNotFoundError(
                     f"expected fixed final-epoch checkpoint was not produced: {checkpoint}"
                 )
+            _run(
+                [
+                    sys.executable,
+                    "scripts/verify_yolo_training_artifacts.py",
+                    "--run-dir",
+                    str(training_project / run_name),
+                ]
+            )
+
+            train_metrics_path = results_dir / "train_metrics.json"
+            _run(
+                [
+                    sys.executable,
+                    "scripts/evaluate_lidc_semantic.py",
+                    "--dataset",
+                    str(dataset_dir),
+                    "--checkpoint",
+                    str(checkpoint),
+                    "--split",
+                    "train",
+                    "--output",
+                    str(train_metrics_path),
+                    "--imgsz",
+                    str(args.imgsz),
+                    "--batch",
+                    str(args.eval_batch),
+                    "--device",
+                    args.device,
+                ]
+            )
+            _run(
+                [
+                    sys.executable,
+                    "scripts/check_lidc_train_sanity.py",
+                    "--metrics",
+                    str(train_metrics_path),
+                ]
+            )
+            metadata["train_metrics"] = str(train_metrics_path.resolve())
+            metadata["train_metrics_sha256"] = _sha256(train_metrics_path)
+            metadata["train_sanity_gate"] = "passed"
+
             metrics_path = results_dir / "metrics.json"
             _run(
                 [
@@ -175,7 +401,9 @@ def main() -> None:
                 ]
             )
             metadata["checkpoint"] = str(checkpoint.resolve())
+            metadata["checkpoint_sha256"] = _sha256(checkpoint)
             metadata["metrics"] = str(metrics_path.resolve())
+            metadata["metrics_sha256"] = _sha256(metrics_path)
             metadata["status"] = "completed"
     except Exception as exc:
         metadata["status"] = "failed"
