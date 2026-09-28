@@ -1,0 +1,69 @@
+{
+  "official": {
+    "name": "LEIA",
+    "expanded": "Learning Efficiently from Incomplete Annotations in the Era of Vision Foundation Models",
+    "summary": "LEIA investigates how semi-supervised learning should be re-evaluated in the era of vision foundation models, with an emphasis on expert vision domains where annotated data are scarce or incomplete.",
+    "goals": [
+      "Benchmark semi-supervised learning techniques under limited annotations",
+      "Study how foundation models change the value and design of semi-supervised learning",
+      "Develop new methods within this combined paradigm",
+      "Publish open, reproducible validation resources for specialist vision scenarios"
+    ],
+    "sourceLabel": "Official INESC TEC LEIA description",
+    "sourceUrl": "https://www.inesctec.pt/pt/oportunidades/visao-por-computador-em-imagem-medica-AE2026-0273"
+  },
+  "benchmark": {
+    "title": "A concrete medical-imaging testbed for the LEIA question",
+    "summary": "This independent benchmark instantiates the LEIA research question in pulmonary nodule segmentation on LIDC-IDRI. It deliberately keeps the problem narrow enough to control the data contract, annotation budgets and evaluation protocol before comparing learning strategies.",
+    "mapping": [
+      {
+        "leia": "Few / incomplete annotations",
+        "benchmark": "Frozen 1%, 5%, 10% and 25% labelled-patient budgets, with ambiguous voxels represented as UNKNOWN rather than forced into background."
+      },
+      {
+        "leia": "Semi-supervised learning",
+        "benchmark": "A supervised YOLO26 semantic baseline is compared against Mean Teacher using the same labelled patients and the remaining training pool as unlabelled data."
+      },
+      {
+        "leia": "Vision foundation models",
+        "benchmark": "Frozen MedSAM is introduced as a second source of evidence for pseudo-label refinement, without using ground-truth prompts in the unlabelled path."
+      },
+      {
+        "leia": "Open validation",
+        "benchmark": "Patient splits, seeds, target construction, QC examples, runners and evaluation logic are versioned in the public repository before final comparisons are made."
+      }
+    ]
+  },
+  "contribution": {
+    "title": "What this benchmark contributes",
+    "items": [
+      {
+        "title": "A controlled baseline",
+        "text": "It establishes a reproducible supervised reference before asking whether additional unlabelled data or a foundation model actually improves the task."
+      },
+      {
+        "title": "A measurable SSL effect",
+        "text": "The Mean Teacher arm isolates the value of classical semi-supervised learning through Delta_SSL = performance(MT) - performance(SUP)."
+      },
+      {
+        "title": "A measurable VFM effect",
+        "text": "The MedSAM-assisted arm isolates the additional contribution of a medical foundation model through Delta_VFM = performance(MT + MedSAM) - performance(MT)."
+      },
+      {
+        "title": "A defensible annotation policy",
+        "text": "Disagreement is preserved as UNKNOWN / ignore instead of being silently converted into negative tissue, so uncertainty in the annotation process remains visible to the learning protocol."
+      }
+    ]
+  },
+  "status": {
+    "complete": [
+      "Frozen patient split and label-budget manifests",
+      "Annotation-vote target policy and visual QC",
+      "Real-data YOLO26 semantic integration smoke test",
+      "Zero-cost preflight across all 12 supervised seed/budget plans",
+      "Ignore-label contract verified for the pinned semantic loss"
+    ],
+    "next": "First full scientific baseline: SUP · 1% labelled patients · seed 1337"
+  },
+  "boundary": "This website and repository are an independent research benchmark inspired by and conceptually aligned with the public LEIA research question. They are not an official LEIA project deliverable, do not claim to represent the full project scope, and are not a clinical diagnostic system."
+}
