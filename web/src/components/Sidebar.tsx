@@ -9,7 +9,7 @@ interface SidebarProps {
 export function Sidebar({ items, active, onNavigate }: SidebarProps) {
   return (
     <aside className="sidebar">
-      <button className="brand" onClick={() => onNavigate('overview')} aria-label="Open overview">
+      <button className="brand" onClick={() => onNavigate('intro')} aria-label="Open LEIA introduction">
         <span className="brand-mark">L</span>
         <span>
           <strong>LEIA</strong>
