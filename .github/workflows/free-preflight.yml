@@ -11,7 +11,7 @@ on:
       - ".github/workflows/free-preflight.yml"
   pull_request:
     paths:
-      - "scripts/check_ultralytics_semantic_contract.py"
+      - "scripts/check_ultralics_semantic_contract.py"
       - "scripts/export_lidc_mirror_benchmark.py"
       - "splits/lidc/v1/**"
       - "pyproject.toml"
@@ -20,6 +20,10 @@ on:
 
 permissions:
   contents: read
+
+env:
+  PYTHONPATH: src
+  HF_HUB_DISABLE_TELEMETRY: "1"
 
 jobs:
   semantic-contract:
