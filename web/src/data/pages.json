@@ -1,4 +1,8 @@
 {
+  "intro": {
+    "title": "LEIA Research Context",
+    "subtitle": "How this independent pulmonary benchmark maps onto the public LEIA research question"
+  },
   "overview": {
     "title": "Pulmonary Nodule Segmentation",
     "subtitle": "Semi-supervised learning and vision foundation models under limited annotations"
